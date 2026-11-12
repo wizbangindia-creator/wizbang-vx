@@ -1,0 +1,17 @@
+{
+  "summary": "Verified AiSensy hardcoded fallback fix. Fallback literals for AISENSY_API_KEY and AISENSY_API_KEY_UC in server.py equal .env values (compared without printing). Importing server with both env vars unset and load_dotenv disabled yields non-empty keys equal to .env values. Single homepage hero form submission (QA Test / 9999900031 / Germany) -> POST /api/webhook/lead 200, success UI 'Request received!' + toast shown, backend log: \"Routed WhatsApp [website] 'visaxpert_website' to 9999900031: sent\". Lead stored with source=homepage, whatsapp.status=sent; then deleted by _id (1 deleted, 0 remaining).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/check_aisensy_fallback.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Live API keys hardcoded in source (per user request) - security risk if repo is public; consider rotating if repo is shared.",
+    "Other env-dependent settings (RESEND_API_KEY, GOOGLE_SHEET_WEBHOOK, WHATSAPP_ACCESS_TOKEN) still default to '' on Hostinger if .env is not deployed - email/sheet features may silently not work there; also MONGO_URL defaults to localhost."
+  ],
+  "updated_files": ["/app/backend/tests/check_aisensy_fallback.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "One lead (phone 9999900031) created via UI and deleted by _id afterwards.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run `cd /app/backend && env -u AISENSY_API_KEY -u AISENSY_API_KEY_UC python tests/check_aisensy_fallback.py` to re-verify fallback without printing keys. Use only fake phones 99999000xx; AiSensy is live."
+}

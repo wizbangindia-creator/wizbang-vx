@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 3: tested VisaXpert changes end to end. Backend profiles API (team + testimonials): 6/6 pytest passed, covering create (multipart), public list and detail, admin list, hide/show toggle (hidden items return 404 publicly), delete followed by 404, 422 for missing fields, 400 for a bad file type, 404 for an unknown kind and rejection of bad credentials. Frontend: every requested item verified. Home page has no 'No-cost consultation' text, no #branches section and no 15-min text; it shows 'Free 30-min consultation' and '30-min call'. Navbar has Our Branches, About (/about) and Stories (/student-stories). The hero CTA, navbar CTA, home Others card and /countries Others card all open enquiry-modal; it has 10 options (9 countries + Other), and the Others cards preselect Other. Choosing Other shows enquiry-other-country, and the hero form Other shows hero-form-other-country. Submitted 1 lead (9999900011, Other=TestLandia): success screen shown, and the lead appears in the dashboard with location TestLandia and campaign popup_home_hero. The approach section shows Genuine/Transparent/Reliable. The student slider shows cards, and View opens /student-stories/<id> with the correct name and review; /student-stories lists all. /about shows 3 pillars, both founders, ICEF credentials, and the team section appears once a member is added. All 4 branch pages: no iframe, correct address, phone and opening time, and branch-directions-btn uses the correct share.google link. /contact has no iframe and has a Berlin directions button. /branches lists the new phones and times. Dashboard Team and Student Testimonials tabs: adding with a photo, hide/show toggle (dimmed card + public 404) and delete all work through the UI. Cleanup done: test lead deleted; all team members (0 left) and testimonials, including the pre-existing 'Test Student', deleted (0 left). Because no testimonials remain, the home slider is now hidden until real ones are added.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/dashboard/profiles/*", "issue": "Admin credentials are passed as query params (existing pattern in this codebase), so they end up in access logs and browser history."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard Team / Student Testimonials tabs", "issues": ["Header subtitle shows 'Team · 1 total leads' and the leads stats cards still render above the profiles manager. These are not relevant on content tabs."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_profiles_team_testimonials.py", "/app/test_reports/pytest/pytest_profiles.xml"],
+  "action_items": [
+    "Optional: hide the leads stats cards and the 'total leads' subtitle on the Team/Testimonials tabs",
+    "Optional: add try/catch + toast on toggle/delete in ProfilesManager (they currently have no error handling)",
+    "Add real student testimonials: the home slider is hidden while the list is empty"
+  ],
+  "critical_code_review_comments": [
+    "ProfilesManager toggle/remove: unhandled promise rejections if the API fails; no loading state",
+    "AddProfileModal close/cancel buttons lack data-testid; there is no UI for the 'order' field, so ordering falls back to created_at",
+    "StudentSlider duplicates items when there are more than 3 (marquee), which produces duplicate data-testid values (student-card-<id>, student-view-<id>)",
+    "HomePage.jsx is 908 lines (>700); consider splitting sections into components",
+    "StudentStoriesPage detail loads the whole list instead of GET /api/profiles/testimonials/{id}. Fine for now, but it won't scale"
+  ],
+  "updated_files": ["/app/backend/tests/test_profiles_team_testimonials.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None left behind. Created then deleted: 1 lead (9999900011, 1 real WhatsApp send attempt logged in whatsapp_messages), 2 API + 1 UI team members, 2 API + 1 UI testimonials. The pre-existing 'Test Student' testimonial was also deleted as requested.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Profiles API: /api/profiles/{team|testimonials}, admin at /api/dashboard/profiles/{kind}?email=&password=. The AiSensy key is live, so limit lead submissions and use phones 99999000xx. Run the regression with: REACT_APP_BACKEND_URL=... pytest backend/tests/test_profiles_team_testimonials.py (it cleans up after itself)."
+}

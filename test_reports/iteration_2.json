@@ -1,0 +1,44 @@
+{
+  "summary": "Tested every requested feature from start to finish. Backend: 16/16 pytest pass. Covered: wa-routes GET/POST with defaults and persistence (reset to defaults afterwards); 403 for navya and 401 for a bad password; campaign-sheet settings save with 8 columns works and persists, and the headings show up in campaign-leads; 7 columns returns 422; an out-of-range role index returns 422; campaign-leads gives 403 for navya and 200 for admin and sunil; resend/delete of an unknown id returns 404; POST /api/webhook/lead (homepage) and GET /api/webhook/ivr?Status=Answered both save the lead. The backend log shows \"Routed WhatsApp [website] 'visaxpert_website' to 9999900001: sent\" and \"[ivr] 'visaxpert_ivr' to 9999900002: sent\". The offline sheet-sync test (tests/test_campaign_sync_local.py) passes: it routes by branch, skips a second sync of the same rows, and records 'No template' when no branch matches. Frontend: /countries and the footer list Netherlands and Sweden, with no Singapore anywhere. /countries/netherlands and /countries/sweden render. /countries/singapore shows 'Country not in our directory yet'. The footer has only Facebook and Instagram, no Sunil Arora text and no landing-page links, and shows info@visaxpertinternational.co.in. The homepage, contact page and branch pages show only that email. The FAQ categories have no IELTS coaching entry, and the word 'coaching' and 'PTE' appear nowhere. Dashboard for sunil: the Campaign Leads nav shows; the tab shows the 8 default headings, the empty state and a disabled 'Sync now'. The Connect sheet modal has the URL input, 8 heading inputs, 8 mapping selects, the name/phone/branch role selects (defaults 1/2/5), the auto-sync toggle and the send-existing toggle. Editing a heading updates the role options live. The WhatsApp templates modal shows the 7 template names pre-filled, and saving shows a toast and closes the modal. The Leads tab lists the IVR and homepage leads. The Sync pill and Sheets settings are hidden for sunil and visible for admin. Navya has no Campaign Leads nav. There were no JS page errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/dashboard/stats", "issue": "The 'Website' stat card counts only source=='website'. Homepage leads (source 'homepage') are not counted, so it shows 0 even though website leads exist. This was the behaviour before this change."},
+      {"endpoint": "/api/webhook/ivr", "issue": "There is no dedupe or throttle on the IVR WhatsApp send. Repeated calls from the same number create a new lead each time and send visaxpert_ivr again (seen: 2 sends to the same number)."},
+      {"endpoint": "/api/webhook/lead", "issue": "Website routing sends visaxpert_website to any source not in the exclusion list, which includes 'meta'/'google' (platform-detected) and generic 'webhook' leads. Confirm this is intended, or switch to an allow-list."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Connect sheet > Save & import", "issue": "Save does not check the URL first. A bad or unshared URL is saved (the status turns 'Google Sheet connected'), then the sync fails with a toast. Consider calling the preview endpoint before saving.", "affected_selectors": ["[data-testid='campaign-sheet-save-btn']"]},
+      {"flow": "Load columns with an invalid sheet", "issue": "The error toast repeats the status codes: 'Error fetching sheet: 400: Failed to fetch sheet: 404'. It should be a friendlier message.", "affected_selectors": ["[data-testid='campaign-sheet-load-btn']"]}
+    ],
+    "design_issues": [
+      {"screen": "Homepage about section", "issues": ["Copy still says 'we handle admissions, visa, IELTS — and the bits in between'. This suggests an IELTS service, which the user asked not to mention (HomePage.jsx:233)."]},
+      {"screen": "FAQ page", "issues": ["The search placeholder says 'Search for IELTS, Germany, blocked account…' (FaqPage.jsx:76) and the meta description mentions IELTS (FaqPage.jsx:45). These are minor: they are about IELTS requirements, not coaching."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_campaign_leads_wa_routes.py", "/app/backend/tests/test_campaign_sync_local.py", "/app/test_reports/pytest/pytest_iter2.xml"],
+  "action_items": [
+    "Optional: remove 'IELTS' from the HomePage.jsx:233 copy and the FAQ placeholder/meta description, to fully honour 'don't mention IELTS/PTE coaching'.",
+    "Optional: in Seo.jsx, the JSON-LD sameAs still lists the LinkedIn and YouTube URLs and areaServed includes 'SG' (Singapore). Remove them for consistency.",
+    "Optional: check the sheet URL (preview) before saving the campaign sheet settings.",
+    "Optional: add a per-phone cooldown for the IVR/website WhatsApp sends to avoid repeat messages."
+  ],
+  "critical_code_review_comments": [
+    "Seo.jsx:32-37 sameAs still includes linkedin and youtube; areaServed includes SG.",
+    "faqs.js:11 and HomePage.jsx (lines 462, 610, 632) still say 'founded by Mr. Sunil Arora'. The user only asked to remove it from the footer, so this is fine, but flagging it in case the intent was site-wide.",
+    "Campaign auto-sync (_maybe_run_campaign_sheet_sync) only starts after the first manual or save-triggered sync sets last_sync. This is correct, but if the first sync fails, auto-sync never starts until a manual sync succeeds.",
+    "Campaign dedupe is by phone only, so the same phone across different campaigns or rows is skipped.",
+    "server.py is now 5747 lines and Dashboard.jsx 5389 lines. Both should be split into modules.",
+    "Dashboard auth still sends the credentials as query params (from the original design)."
+  ],
+  "updated_files": ["/app/backend/tests/test_campaign_leads_wa_routes.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "sunilarora@visaxpert.co, navyaarora@visaxpert.co and admin@visaxpert.com, all with VisaXpert@2024, all work. /app/memory/test_credentials.md lists only the admin account; it should add sunil and navya.",
+  "seed_data_creation": "Created 1 homepage lead (TEST_Website, 9999900001) and 1 IVR lead (9999900002), then deleted both. The main agent's earlier 'Test Web' and IVR leads remain. wa-routes are confirmed at their defaults. The campaign_sheet settings doc was restored to the default headings with an empty URL (configured=false).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Regression suite: /app/backend/tests/test_campaign_leads_wa_routes.py. It makes 2 real AiSensy sends to fake numbers 9999900001/2; AiSensy returns 'sent'. Campaign tab selectors: nav-campaign-leads, campaign-leads-tab, campaign-leads-table, campaign-leads-empty, campaign-sheet-settings-btn, campaign-sheet-url-input, campaign-heading-{0..7}, campaign-mapping-{0..7}, role-{name_col,phone_col,branch_col}, campaign-auto-sync-toggle, wa-routes-btn, wa-route-{key}, wa-routes-save-btn, modal-close-btn. Do not run a real sheet sync with send_to_existing=true."
+}

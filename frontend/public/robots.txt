@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Block the admin dashboard from being indexed
+Disallow: /dashboard
+Disallow: /dashboard/*
+
+Sitemap: https://visaxpert.in/sitemap.xml

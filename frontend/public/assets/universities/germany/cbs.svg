@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 120" width="260" height="120">
+  <rect width="260" height="120" fill="#ffffff"/>
+  <g font-family="Georgia, 'Times New Roman', serif" text-anchor="middle">
+    <text x="130" y="50" font-size="36" font-weight="700" fill="#0b3d91" letter-spacing="4">CBS</text>
+    <text x="130" y="78" font-size="11" font-weight="600" fill="#0b3d91" letter-spacing="2">COLOGNE BUSINESS</text>
+    <text x="130" y="95" font-size="11" font-weight="600" fill="#0b3d91" letter-spacing="2">SCHOOL</text>
+  </g>
+  <rect x="10" y="105" width="240" height="3" fill="#d4a017"/>
+</svg>

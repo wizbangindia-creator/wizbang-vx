@@ -1,0 +1,17 @@
+{
+  "summary": "Verified new Indian AiSensy key hardcode. AISENSY_API_KEY and AISENSY_API_KEY_UC fallback literals in server.py equal .env values (compared without printing). Importing server with both env vars unset and load_dotenv disabled yields non-empty keys equal to .env values. Single homepage hero form submit (QA Test / 9999900061) -> POST /api/webhook/lead 200, success UI 'Request received!' shown; backend log: \"Routed WhatsApp [website] 'visaxpert_website' to 9999900061: sent\" (no Unauthorized). Lead (source=homepage, whatsapp.status=sent) deleted by _id (1 deleted, 0 remaining).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/check_aisensy_fallback.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Live API keys hardcoded in source (per user request) - security risk if repo is shared; rotate if exposed.",
+    "On Hostinger, ensure backend is redeployed with updated server.py (and/or .env) — the old Unauthorized error came from the stale key; other env-dependent settings (RESEND_API_KEY, GOOGLE_SHEET_WEBHOOK, MONGO_URL) still default to empty/localhost if .env is absent."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "One lead (phone 9999900061) created via UI and deleted by _id afterwards.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run `cd /app/backend && env -u AISENSY_API_KEY -u AISENSY_API_KEY_UC python tests/check_aisensy_fallback.py` to re-verify fallback without printing keys. Use only fake phones 99999000xx; AiSensy is live. 9999900031 and 9999900061 already used."
+}

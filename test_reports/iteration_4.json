@@ -1,0 +1,31 @@
+{
+  "summary": "Read-only check of AiSensy WhatsApp routing. No messages sent and no leads created. GET /api/dashboard/wa-routes returns all 12 expected templates. A wrong password returns 401. _branch_route_key and send_routed_whatsapp work as specified. The offline test test_campaign_sync_local.py prints OK. In the backend log, the 'visaxpert_online_counselling' failure is an AiSensy-side 'Campaign does not exist.' error, not a code error. The 'crmall' failure from the smoke run is not in the supervisor logs, because the smoke script runs as its own process.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET/POST /api/dashboard/wa-routes", "issue": "_require_india_access only calls verify_auth and does not check access level. navyaarora@visaxpert.co (university_change only) gets 200 and could also POST to overwrite India templates."},
+      {"endpoint": "server.py lines 44-46", "issue": "Live AISENSY_API_KEY and AISENSY_API_KEY_UC JWTs are hardcoded as fallbacks to os.environ.get. Move them to .env only. The keys are exposed in source."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_wa_routes_readonly.py", "/app/backend/tests/test_campaign_sync_local.py", "/app/test_reports/pytest/pytest_wa_routes_readonly.xml"],
+  "action_items": [
+    "AiSensy dashboard (main 'Visaxpert - The Study Abroad Special' account): create or go live with the API campaign named exactly 'visaxpert_online_counselling'. backend.err.log, 2026-10-29 07:52:34: Routed WhatsApp [online] 'visaxpert_online_counselling' to 8800747989 failed with ERR400 'Campaign does not exist.' (trace ais_mvt8wxar_fc9812d0). A real Online lead did not get its message.",
+    "AiSensy: create or go live with an API campaign named 'crmall' (WHATSAPP_TEMPLATE_NAME, used for Meta/Google Ads leads), or point WHATSAPP_TEMPLATE_NAME at an existing campaign. The supervisor log has no 'Campaign does not exist' line for crmall: the smoke script logged to its own stdout. An older log line, 2026-10-28, shows crmall failing with 'No Plan active on assistant!'.",
+    "Optional: restrict wa-routes GET/POST to India/admin access.",
+    "Optional: remove the hardcoded AiSensy key fallbacks from server.py."
+  ],
+  "critical_code_review_comments": [
+    "_branch_route_key: 'online' in the branch name is checked first. The branch and online_branch are joined and searched for jammu/pathankot/ludhiana/amritsar, which gives online_<branch>, otherwise 'online'. Without 'online', it searches jammu/pathankot/ludhiana/amritsar, otherwise None. Verified with 9 cases.",
+    "send_routed_whatsapp: route 'berlin' uses api_key_override=AISENSY_API_KEY_UC and always sends the name param. Other routes use the main key (override None, so it falls back to AISENSY_API_KEY). On failure it stores whatsapp.status='failed' with the AiSensy error text (up to 300 chars) on the document and logs it at ERROR.",
+    "Missing template, phone or branch is recorded as failed with the error 'No template for this branch' or 'No phone number'. The 'Mumbai' row in the offline test confirms this."
+  ],
+  "updated_files": ["/app/backend/tests/test_wa_routes_readonly.py"],
+  "success_rate": {"backend": "100% (3/3 read-only pytest plus offline sync test OK)", "frontend": "not tested"},
+  "test_credentials": "sunilarora@visaxpert.co / VisaXpert@2024 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. The offline test uses a temporary database 'campaign_test_tmp', which it drops itself.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Live AiSensy keys: never call send, webhook, sync or resend endpoints. Run the read-only regression with: cd /app/backend && python -m pytest tests/test_wa_routes_readonly.py -p no:cacheprovider. pytest.ini adds xdist args, so do not pass -p no:xdist. The offline check is python tests/test_campaign_sync_local.py.",
+  "rca of the issue": "Both failing templates return ERR400 'Campaign does not exist.' from AiSensy. AiSensy matches campaignName against API campaigns in the account that owns the key, not against template names. The code sends the configured names correctly. The fix is to create or activate these campaigns in AiSensy, or rename the routes to existing campaigns via POST /api/dashboard/wa-routes or the WHATSAPP_TEMPLATE_NAME env var."
+}

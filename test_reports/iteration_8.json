@@ -1,0 +1,24 @@
+{
+  "summary": "Tested the 'Send all skipped' feature for Campaign Leads. Offline test tests/test_send_skipped_local.py passes and prints OK. Live API (new pytest file): 3 passed, 1 skipped by design. GET /campaign-leads returns skipped_count as an int, with account 'india' for sunil. A bad password on send-skipped is rejected. With 0 skipped rows, send-skipped returns {success:true, queued:0}. Account isolation: navya (berlin) called send-skipped while a temporary india qa-skip-1 skipped row existed; the call returned queued 0 and the india row stayed 'skipped'. UI: logged in as sunil -> Campaign Leads; the button rendered as 'Send all skipped (1)'. The confirm dialog said 'Send WhatsApp to 1 skipped leads now?', the toast said 'Sending to 1 leads — statuses update in a moment', and after a reload the row showed 'failed' (no branch -> 'No template for this branch', so no live message went out) and the button was hidden. The qa-skip-1 doc was deleted; the 6 real leads (5 sent, 1 failed) are unchanged.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [{"screen": "Campaign Leads confirm and toast", "issues": ["Pluralization: '1 skipped leads' / 'Sending to 1 leads' (cosmetic)"]}]
+  },
+  "test_report_links": ["/app/backend/tests/test_send_skipped_api.py", "/app/backend/tests/test_send_skipped_local.py", "/app/test_reports/pytest/pytest_iter8.xml"],
+  "action_items": ["Optional: fix pluralization in the confirm and toast text", "Optional: disable send-skipped-btn while the request is in flight to prevent double clicks (the backend is effectively idempotent because rows switch to 'queued')"],
+  "critical_code_review_comments": [
+    "send_skipped caps the batch at to_list(5000). Rows beyond 5000 need a second click; this is acceptable but undocumented.",
+    "The background task created by asyncio.create_task is not kept as a reference, so it could in theory be garbage-collected. Keep it in a module-level set.",
+    "If the backend restarts mid-run, rows are left in 'queued' and are no longer counted in skipped_count, so the button cannot retry them. Consider including stale 'queued' rows or providing a resend path.",
+    "Skipped rows with no mappable branch turn 'failed' ('No template for this branch'), same as the existing unmapped-branch issue from iteration 7.",
+    "server.py is ~5900 lines and should be split."
+  ],
+  "updated_files": ["/app/backend/tests/test_send_skipped_api.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Temporarily inserted campaign_leads doc qa-skip-1 (india, phone 9999900071, skipped). Deleted after the test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "navya = berlin account (university_change access) and can call campaign endpoints for berlin; this is by design. Only call send-skipped live when the real skipped_count is 0 apart from fake 99999 rows; the test file guards this. The pytest.ini uses xdist, so run with plain `python -m pytest`."
+}

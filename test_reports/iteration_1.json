@@ -1,0 +1,31 @@
+{
+  "summary": "Smoke test of the freshly cloned VisaXpert app. Backend: 10/10 pytest pass (GET /api/ shows 'VisaXpert API' with status running, /api/health shows DB connected, POST /api/webhook/lead for website/university_change/ielts_celebration/germany_fair/media_design_webinar, POST /api/enquiry, dashboard login ok/401, stats, leads search (each new lead shows up in the list), public reviews/partner-logos/success-stories/page-logos/uc-appointment-toggle). Frontend: homepage hero form submits (POST /api/webhook/lead returns 200 and the success state shows); /study-abroad, /berlin, /germany-fair, /ielts-celebration, /countries, /branches, /contact, /faq, /webinar/media-design, /privacy-policy, /terms, /impressum all render with no JS page errors; /university-change redirects to /berlin; the Berlin UC form submits and shows the 'Thank you!' message; dashboard login with the admin account works and the submitted UI leads appear in the table with the right sources (homepage, university_change). The third-party channels without keys (Resend/Sheets/FB) skip without breaking the request.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/webhook/lead, /api/enquiry", "issue": "The AiSensy WhatsApp API keys (AISENSY_API_KEY and AISENSY_API_KEY_UC) are hardcoded in server.py lines 44-46, so WhatsApp sends are really attempted against the live AiSensy account. They currently fail with 'No Plan active on assistant!' and are logged, and the request still succeeds. Risk: real WhatsApp messages would go to test phone numbers if that plan becomes active."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_smoke_clone.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Optional: move the hardcoded AiSensy keys in server.py into backend/.env when the user supplies third-party keys."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 5445 lines; a monolith (as-is from the repo, not changed in a smoke run).",
+    "Hardcoded AiSensy JWT keys in source (server.py:44-46).",
+    "Dashboard auth sends the email and password as query params on every request (e.g. /api/dashboard/leads?email=&password=), which exposes credentials in logs and URLs. This is the repo's original design.",
+    "Unreachable code after the return in get_dashboard_stats (server.py:2877-2891)."
+  ],
+  "updated_files": ["/app/backend/tests/test_smoke_clone.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@visaxpert.com / VisaXpert@2024 (from /app/memory/test_credentials.md), works",
+  "seed_data_creation": "TEST_-prefixed leads were created during testing and then deleted from the leads collection (the DB now has 0 leads).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Smoke suite: /app/backend/tests/test_smoke_clone.py. The Berlin form selectors are form-name, form-email, form-phone, form-transfer-type, form-submit and uc-success-message. The home form uses hero-form-* selectors. Dashboard login uses login-email, login-password and login-submit. Avoid page.expect_response in long browser scripts: a combined script hung the harness once (it was a tool artifact, not the app)."
+}

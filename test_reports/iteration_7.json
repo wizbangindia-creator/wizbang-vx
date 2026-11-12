@@ -1,0 +1,23 @@
+{
+  "summary": "Verified hardcoded AiSensy keys (India + Berlin) in server.py: they match backend/.env values, and setting env AISENSY_API_KEY/_UC='wrong' before importing/reloading server does not override them. GET /api/dashboard/wa-routes returns key_hint {india, berlin} as '…'+last 6 chars, matching .env keys; POST wa-routes round-trip works and returns key_hint; bad password -> 401. UI: sunilarora login -> Campaign Leads -> WhatsApp templates modal shows wa-key-hint ('AiSensy key in use ends with …xxxxxx'). Resend test SKIPPED: no campaign lead with a 99999 phone exists (6 leads: 5 sent, 1 failed). Keys never printed, no real numbers messaged.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "campaign lead WhatsApp routing", "issue": "1 of 6 campaign leads has whatsapp.status='failed' with error 'No template for this branch'. Its branch doesn't map to any BRANCH_ROUTE_KEYS (jammu/pathankot/ludhiana/amritsar/online), so no message is sent. This is not an AiSensy key problem. Consider a fallback template, e.g. 'online' or 'website', for unmapped branches."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_aisensy_hardcoded_keys.py", "/app/backend/tests/test_wa_routes_readonly.py", "/app/test_reports/pytest/pytest_iter7.xml"],
+  "action_items": ["Optional: add a fallback template for campaign leads whose branch is unmapped ('No template for this branch')"],
+  "critical_code_review_comments": [
+    "Live API keys hardcoded in server.py (committed to source). This was done at the user's request, but the keys are exposed to anyone with repo access.",
+    "backend/.env still contains AISENSY_API_KEY/_UC; they are now unused and could drift from the literals. Consider removing them to avoid confusion.",
+    "server.py is ~5870 lines; it should be split into modules."
+  ],
+  "updated_files": ["/app/backend/tests/test_aisensy_hardcoded_keys.py"],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "100%"},
+  "seed_data_creation": "None. POST wa-routes was called with the existing values (no change).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Never print AiSensy keys. Resend endpoint POST /api/dashboard/campaign-leads/{campaign_lead_id}/resend sends live WhatsApp messages; only use it on leads with phone 99999xxxxx (none exist currently)."
+}
