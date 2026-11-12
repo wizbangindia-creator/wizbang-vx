@@ -1,0 +1,32 @@
+{
+  "summary": "Unit-tested the worldwide _format_phone change, which now uses phonenumbers 9.0.43 (listed in requirements.txt). The tests import server directly and make no network calls. New file tests/test_phone_worldwide.py has 115 cases, and all pass. Each of 31 international formats is run with default_cc 49 and with 91. Results: France '+33 06…'/'0033 6…' -> 33612345678. Italy '+39 06…' keeps the 0 -> 390612345678. Brazil gives 5511912345678. Nigeria '+234 0803…' -> 2348031234567. Australia '+61 0412…' -> 61412345678. Kenya '+254 0712…' -> 254712345678. Egypt '+20 010…' -> 201012345678. US (with parentheses and dashes) -> 14155552671. UK '+44 07700…' -> 447700900123. UAE '+971 050…' -> 971501234567. Malta, Lithuania (+ and 00) and Latvia are kept. Pakistan '+92 0300…' -> 923001234567. Bangladesh '+880 01712…' -> 8801712345678. Nepal gives 9779801234567. Germany '+49 0176…' -> 491761234567. India '+91 098765…' -> 919876543210. Oman 'p:+968…' and bidi-wrapped input are also handled. Bare numbers: 0176… -> 49176… with 49, and 10 digits -> 91… with 91. _clean_phone(raw,'berlin') returns '+intl' for all of these and '' for short bare numbers. The India _clean_phone path is unchanged: 10 digits for Indian numbers, +intl for other countries. _send_via_aisensy was run with httpx AsyncClient.post monkeypatched: the UC/Berlin key uses default 49 and the India key uses 91, and the destination is correct in both cases. Regression: the iteration 11-12 suite (test_berlin_phone_format.py) passes 50/50, and test_berlin_campaign_sync_e2e.py passes 2/2 (sync once, send_to_existing=false, sheets deleted by id). After the run: campaign_sheets=0, campaign_leads=0 and whatsapp_messages=0, so nothing was sent. GET /api/health returns healthy with database connected, and the backend logs show a clean startup. Ad-hoc probes also looked correct: Russia '+7 8 916…' -> 79161234567, Hungary '+36 06…' -> 36301234567, Argentina '+54 011 15…' -> 5491112345678, Netherlands '+31 06…' -> 31612345678, Indonesia, Turkey and China all fine.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "_format_phone/_clean_phone", "issue": "There is no validity check. If phonenumbers says a number is not possible, the raw digits are returned unchanged. For example, '+0 123' -> '+0123' and '+49 01761234567890123' -> '+4901761234567890123'. Such leads are stored as valid and an AiSensy send would be tried. Consider marking them invalid when is_possible_number is False and the input had +/00."},
+      {"endpoint": "_format_phone (Berlin)", "issue": "A bare 10-digit foreign number written without +/00 (for example the Italian mobile '3331234567') gets 49 added -> 493331234567. This is expected with default 49, but the number is wrong. The sheet's data can't tell these apart."},
+      {"endpoint": "_format_phone (Mexico)", "issue": "'+52 1 55…' keeps the legacy mobile '1' -> 5215512345678. WhatsApp usually accepts this, so it is noted only."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_phone_worldwide.py",
+    "/app/backend/tests/test_berlin_phone_format.py",
+    "/app/backend/tests/test_berlin_campaign_sync_e2e.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: treat numbers that phonenumbers says are not possible (and that had +/00) as invalid instead of returning raw digits"
+  ],
+  "critical_code_review_comments": [
+    "The fallback to raw digits when is_possible_number is False hides junk numbers. Return '' or flag them so the lead status becomes 'invalid'.",
+    "_send_via_aisensy at line ~3187 (the second send path) calls _format_phone(to_phone) with the default 91 even when it might be used for Berlin. Check that this path is only used for India.",
+    "server.py is about 5100 lines and should be split into modules."
+  ],
+  "updated_files": ["/app/backend/tests/test_phone_worldwide.py"],
+  "success_rate": {"backend": "100% (165/165 unit + 2/2 e2e)", "frontend": "not tested (backend only)"},
+  "seed_data_creation": "The e2e regression created 2 TEST_ campaign sheets and deleted them by id through the API. Final counts: campaign_sheets 0, campaign_leads 0. No WhatsApp was sent.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && pytest tests/test_phone_worldwide.py tests/test_berlin_phone_format.py (unit, no network). The e2e needs REACT_APP_BACKEND_URL exported. It syncs once only; never re-sync an existing sheet, because that sends real AiSensy messages."
+}

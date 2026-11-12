@@ -4684,12 +4684,21 @@ async def delete_campaign_sheet(sheet_id: str, email: str = Query(...), password
     return {"success": True, "leads_deleted": res.deleted_count}
 
 
+def _possible_number(digits: str) -> bool:
+    try:
+        return phonenumbers.is_possible_number(phonenumbers.parse("+" + digits, None))
+    except phonenumbers.NumberParseException:
+        return False
+
+
 def _clean_phone(raw: str, account: str = "india") -> str:
     intl = re.match(r"^\D*(\+|00)", (raw or "").strip()) is not None
     if account == "berlin":
         if not intl and len(re.sub(r"\D", "", raw or "")) < 10:
             return ""
         digits = _format_phone(raw or "", "49")
+        if intl and not _possible_number(digits):
+            return ""
         return f"+{digits}" if digits else ""
     if intl:
         digits = _format_phone(raw or "")
