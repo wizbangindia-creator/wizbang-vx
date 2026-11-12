@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { toast } from "sonner";
-import { Search, RefreshCw, Link, Trash2, Send, X, FileSpreadsheet, MessageCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, RefreshCw, Trash2, Send, FileSpreadsheet, MessageCircle, ChevronLeft, ChevronRight, Plus, Pencil } from "lucide-react";
+import { Shell, SheetModal } from "./CampaignSheetModal";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const auth = (c) => `email=${encodeURIComponent(c.email)}&password=${encodeURIComponent(c.password)}`;
@@ -33,40 +34,95 @@ function WaBadge({ wa }) {
   );
 }
 
+function SheetsPanel({ sheets, syncingId, onSync, onEdit, onRemove }) {
+  if (sheets.length === 0) {
+    return <p className="text-sm text-slate-400 px-1" data-testid="campaign-sheets-empty">No sheets connected yet. Click "Connect sheet" to add one.</p>;
+  }
+  return (
+    <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3" data-testid="campaign-sheets-list">
+      {sheets.map((s) => (
+        <div key={s.campaign_sheet_id} className="border border-slate-200 rounded-lg p-3 flex flex-col gap-2" data-testid={`campaign-sheet-card-${s.campaign_sheet_id}`}>
+          <div className="min-w-0">
+            <p className="font-medium text-slate-900 truncate" title={s.label}>{s.label}</p>
+            {s.tab_name && s.tab_name !== s.label && <p className="text-xs text-slate-500 truncate">Tab: {s.tab_name}</p>}
+            <p className="text-xs text-slate-500">
+              {s.last_sync ? `Synced ${new Date(s.last_sync).toLocaleString()} · ${s.last_sync_result}` : "Not synced yet"}
+              {s.auto_sync_enabled && ` · Auto every ${s.sync_interval_minutes} min`}
+            </p>
+          </div>
+          <div className="flex gap-1.5">
+            <button onClick={() => onSync(s)} disabled={!!syncingId} className="flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-900 text-white text-xs disabled:opacity-50" data-testid={`campaign-sheet-sync-${s.campaign_sheet_id}`}>
+              <RefreshCw size={13} className={syncingId === s.campaign_sheet_id ? "animate-spin" : ""} /> Sync
+            </button>
+            <button onClick={() => onEdit(s)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-slate-200 text-xs hover:bg-slate-50" data-testid={`campaign-sheet-edit-${s.campaign_sheet_id}`}>
+              <Pencil size={13} /> Edit
+            </button>
+            <button onClick={() => onRemove(s)} className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-slate-200 text-xs text-red-600 hover:bg-red-50" data-testid={`campaign-sheet-remove-${s.campaign_sheet_id}`}>
+              <Trash2 size={13} /> Remove
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function CampaignLeadsManager({ credentials }) {
   const [data, setData] = useState({ headings: [], items: [], total: 0 });
-  const [settings, setSettings] = useState(null);
+  const [sheets, setSheets] = useState([]);
+  const [sheetFilter, setSheetFilter] = useState("");
   const [search, setSearch] = useState("");
   const [branch, setBranch] = useState("");
   const [page, setPage] = useState(1);
-  const [syncing, setSyncing] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+  const [syncingId, setSyncingId] = useState("");
+  const [editing, setEditing] = useState(undefined);
   const [showRoutes, setShowRoutes] = useState(false);
   const perPage = 20;
 
   const load = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/dashboard/campaign-leads?${auth(credentials)}&page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&branch=${branch}`);
+      const res = await axios.get(`${API}/dashboard/campaign-leads?${auth(credentials)}&page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&branch=${branch}&sheet_id=${sheetFilter}`);
       setData(res.data);
     } catch (e) { toast.error(errMsg(e)); }
-  }, [credentials, page, search, branch]);
+  }, [credentials, page, search, branch, sheetFilter]);
 
-  const loadSettings = useCallback(async () => {
-    const res = await axios.get(`${API}/dashboard/campaign-sheet/settings?${auth(credentials)}`);
-    setSettings(res.data);
+  const loadSheets = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/dashboard/campaign-sheets?${auth(credentials)}`);
+      setSheets(res.data.sheets);
+    } catch (e) { toast.error(errMsg(e)); }
   }, [credentials]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { loadSettings(); }, [loadSettings]);
+  useEffect(() => { loadSheets(); }, [loadSheets]);
 
-  const syncNow = async (sendToExisting = false) => {
-    setSyncing(true);
+  const syncSheet = async (s, sendToExisting = false) => {
+    setSyncingId(s.campaign_sheet_id);
     try {
-      const res = await axios.post(`${API}/dashboard/campaign-sheet/sync?${auth(credentials)}`, { send_to_existing: sendToExisting });
+      const res = await axios.post(`${API}/dashboard/campaign-sheets/${s.campaign_sheet_id}/sync?${auth(credentials)}`, { send_to_existing: sendToExisting });
       toast.success(res.data.message);
-      await Promise.all([load(), loadSettings()]);
     } catch (e) { toast.error(errMsg(e)); }
-    setSyncing(false);
+    setSyncingId("");
+    await Promise.all([load(), loadSheets()]);
+  };
+
+  const syncAll = async () => {
+    setSyncingId("all");
+    try {
+      const res = await axios.post(`${API}/dashboard/campaign-sheets/sync-all?${auth(credentials)}`);
+      toast.success(res.data.message);
+    } catch (e) { toast.error(errMsg(e)); }
+    setSyncingId("");
+    await Promise.all([load(), loadSheets()]);
+  };
+
+  const removeSheet = async (s) => {
+    if (!window.confirm(`Disconnect "${s.label}"? Leads already imported stay in the list.`)) return;
+    try {
+      await axios.delete(`${API}/dashboard/campaign-sheets/${s.campaign_sheet_id}?${auth(credentials)}`);
+      if (sheetFilter === s.campaign_sheet_id) setSheetFilter("");
+      loadSheets();
+    } catch (e) { toast.error(errMsg(e)); }
   };
 
   const resend = async (id) => {
@@ -97,38 +153,39 @@ export default function CampaignLeadsManager({ credentials }) {
   };
 
   const pages = Math.max(1, Math.ceil(data.total / perPage));
+  const showSheetCol = !sheetFilter && sheets.length > 1;
 
   return (
     <div className="space-y-6" data-testid="campaign-leads-tab">
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col lg:flex-row lg:items-center gap-4 justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 grid place-items-center"><FileSpreadsheet size={20} /></div>
-          <div>
-            <p className="font-semibold text-slate-900" data-testid="campaign-sheet-status">
-              {settings?.configured ? "Google Sheet connected" : "No Google Sheet connected"}
-            </p>
-            <p className="text-xs text-slate-500">
-              {settings?.last_sync ? `Last sync ${new Date(settings.last_sync).toLocaleString()} · ${settings.last_sync_result}` : "Connect a sheet and map its columns to start"}
-              {settings?.auto_sync_enabled && ` · Auto-sync every ${settings.sync_interval_minutes} min`}
-            </p>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-4 justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 grid place-items-center"><FileSpreadsheet size={20} /></div>
+            <div>
+              <p className="font-semibold text-slate-900" data-testid="campaign-sheet-status">
+                {sheets.length ? `${sheets.length} Google Sheet${sheets.length === 1 ? "" : "s"} connected` : "No Google Sheet connected"}
+              </p>
+              <p className="text-xs text-slate-500">Connect as many sheets or tabs as you need — each is synced on its own.</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {data.skipped_count > 0 && (
+              <button onClick={sendSkipped} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700" data-testid="send-skipped-btn">
+                <Send size={15} /> Send all skipped ({data.skipped_count})
+              </button>
+            )}
+            <button onClick={() => setShowRoutes(true)} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50" data-testid="wa-routes-btn">
+              <MessageCircle size={15} /> WhatsApp templates
+            </button>
+            <button onClick={() => setEditing(null)} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50" data-testid="campaign-sheet-connect-btn">
+              <Plus size={15} /> Connect sheet
+            </button>
+            <button onClick={syncAll} disabled={!!syncingId || sheets.length === 0} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white text-sm disabled:opacity-50" data-testid="campaign-sync-btn">
+              <RefreshCw size={15} className={syncingId === "all" ? "animate-spin" : ""} /> {syncingId === "all" ? "Syncing…" : "Sync all"}
+            </button>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {data.skipped_count > 0 && (
-            <button onClick={sendSkipped} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700" data-testid="send-skipped-btn">
-              <Send size={15} /> Send all skipped ({data.skipped_count})
-            </button>
-          )}
-          <button onClick={() => setShowRoutes(true)} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50" data-testid="wa-routes-btn">
-            <MessageCircle size={15} /> WhatsApp templates
-          </button>
-          <button onClick={() => setShowSettings(true)} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50" data-testid="campaign-sheet-settings-btn">
-            <Link size={15} /> {settings?.configured ? "Sheet & columns" : "Connect sheet"}
-          </button>
-          <button onClick={() => syncNow(false)} disabled={syncing || !settings?.configured} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white text-sm disabled:opacity-50" data-testid="campaign-sync-btn">
-            <RefreshCw size={15} className={syncing ? "animate-spin" : ""} /> {syncing ? "Syncing…" : "Sync now"}
-          </button>
-        </div>
+        <SheetsPanel sheets={sheets} syncingId={syncingId} onSync={(s) => syncSheet(s)} onEdit={setEditing} onRemove={removeSheet} />
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col md:flex-row gap-3">
@@ -136,6 +193,12 @@ export default function CampaignLeadsManager({ credentials }) {
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search any column…" className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" data-testid="campaign-search-input" />
         </div>
+        {sheets.length > 1 && (
+          <select value={sheetFilter} onChange={(e) => { setSheetFilter(e.target.value); setPage(1); }} className="px-3 py-2.5 border border-slate-200 rounded-lg max-w-xs" data-testid="campaign-sheet-filter">
+            <option value="">All sheets</option>
+            {sheets.map((s) => <option key={s.campaign_sheet_id} value={s.campaign_sheet_id}>{s.label}</option>)}
+          </select>
+        )}
         {data.account !== "berlin" && (
           <select value={branch} onChange={(e) => { setBranch(e.target.value); setPage(1); }} className="px-3 py-2.5 border border-slate-200 rounded-lg" data-testid="campaign-branch-filter">
             {BRANCHES.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
@@ -147,6 +210,7 @@ export default function CampaignLeadsManager({ credentials }) {
         <table className="w-full text-sm" data-testid="campaign-leads-table">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
+              {showSheetCol && <th className="text-left font-semibold px-4 py-3">Sheet</th>}
               {data.headings.map((h, i) => <th key={i} className="text-left font-semibold px-4 py-3 whitespace-nowrap">{h}</th>)}
               <th className="text-left font-semibold px-4 py-3">WhatsApp</th>
               <th className="px-4 py-3" />
@@ -154,10 +218,11 @@ export default function CampaignLeadsManager({ credentials }) {
           </thead>
           <tbody>
             {data.items.length === 0 && (
-              <tr><td colSpan={data.headings.length + 2} className="text-center text-slate-400 py-12" data-testid="campaign-leads-empty">No campaign leads yet</td></tr>
+              <tr><td colSpan={data.headings.length + 3} className="text-center text-slate-400 py-12" data-testid="campaign-leads-empty">No campaign leads yet</td></tr>
             )}
             {data.items.map((l) => (
               <tr key={l.campaign_lead_id} className="border-t border-slate-100 hover:bg-slate-50" data-testid={`campaign-lead-row-${l.campaign_lead_id}`}>
+                {showSheetCol && <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap max-w-[160px] truncate" title={l.sheet_label}>{l.sheet_label || "—"}</td>}
                 {l.values.map((v, i) => <td key={i} className="px-4 py-3 text-slate-700 whitespace-nowrap max-w-[220px] truncate" title={v}>{v || "—"}</td>)}
                 <td className="px-4 py-3 whitespace-nowrap"><WaBadge wa={l.whatsapp} /></td>
                 <td className="px-4 py-3 whitespace-nowrap text-right">
@@ -178,127 +243,12 @@ export default function CampaignLeadsManager({ credentials }) {
         </div>
       </div>
 
-      {showSettings && settings && (
-        <CampaignSheetSettings credentials={credentials} settings={settings} onClose={() => setShowSettings(false)}
-          onSaved={async (firstConnect, sendExisting) => { setShowSettings(false); await loadSettings(); load(); if (firstConnect) syncNow(sendExisting); }} />
+      {editing !== undefined && (
+        <SheetModal credentials={credentials} sheet={editing} connectedSheets={sheets} onClose={() => setEditing(undefined)}
+          onSaved={async (saved, firstImport, sendExisting) => { setEditing(undefined); await loadSheets(); load(); if (firstImport) syncSheet(saved, sendExisting); }} />
       )}
       {showRoutes && <WaRoutesModal credentials={credentials} berlin={data.account === "berlin"} onClose={() => setShowRoutes(false)} />}
     </div>
-  );
-}
-
-function Shell({ title, onClose, children }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
-        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600" data-testid="modal-close-btn"><X size={22} /></button>
-        <h3 className="text-xl font-bold text-slate-900 mb-5">{title}</h3>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function CampaignSheetSettings({ credentials, settings, onClose, onSaved }) {
-  const [url, setUrl] = useState(settings.sheet_url);
-  const [columns, setColumns] = useState(settings.columns);
-  const [roles, setRoles] = useState({ phone_col: settings.phone_col, name_col: settings.name_col, branch_col: settings.branch_col, online_branch_col: settings.online_branch_col ?? -1 });
-  const [auto, setAuto] = useState(settings.auto_sync_enabled);
-  const [interval, setIntervalMin] = useState(settings.sync_interval_minutes);
-  const [headers, setHeaders] = useState([]);
-  const [sendExisting, setSendExisting] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  const loadHeaders = useCallback(async (sheetUrl) => {
-    if (!sheetUrl) return false;
-    setBusy(true);
-    let ok = false;
-    try {
-      const res = await axios.post(`${API}/dashboard/sheets/preview?${auth(credentials)}&sheet_url=${encodeURIComponent(sheetUrl)}&sample_size=3`);
-      setHeaders(res.data.headers);
-      setColumns((cols) => cols.map((c) => c.sheet_column ? c : { ...c, sheet_column: res.data.headers.find((h) => h.toLowerCase().includes(c.heading.toLowerCase().split(" ").pop())) || "" }));
-      toast.success(`Found ${res.data.headers.length} columns, ${res.data.total_rows} rows`);
-      ok = true;
-    } catch (e) { toast.error(errMsg(e)); }
-    setBusy(false);
-    return ok;
-  }, [credentials]);
-
-  useEffect(() => { if (settings.sheet_url) loadHeaders(settings.sheet_url); }, [settings.sheet_url, loadHeaders]);
-
-  const setCol = (i, key, val) => setColumns(columns.map((c, j) => (j === i ? { ...c, [key]: val } : c)));
-
-  const save = async () => {
-    if (headers.length === 0 && !(await loadHeaders(url))) return;
-    if (!columns.some((c) => c.sheet_column)) { toast.error("Map at least one sheet column"); return; }
-    setBusy(true);
-    try {
-      await axios.post(`${API}/dashboard/campaign-sheet/settings?${auth(credentials)}`, {
-        sheet_url: url, columns, ...roles, auto_sync_enabled: auto, sync_interval_minutes: Number(interval) || 15,
-      });
-      toast.success("Sheet settings saved");
-      onSaved(!settings.last_sync, sendExisting);
-    } catch (e) { toast.error(errMsg(e)); }
-    setBusy(false);
-  };
-
-  const roleSelect = (key, label, allowNone = false) => (
-    <label className="text-sm">
-      <span className="block text-slate-600 mb-1">{label}</span>
-      <select value={roles[key]} onChange={(e) => setRoles({ ...roles, [key]: Number(e.target.value) })} className="w-full px-3 py-2 border border-slate-200 rounded-lg" data-testid={`role-${key}`}>
-        {allowNone && <option value={-1}>— none —</option>}
-        {columns.map((c, i) => <option key={i} value={i}>{i + 1}. {c.heading || `Column ${i + 1}`}</option>)}
-      </select>
-    </label>
-  );
-
-  return (
-    <Shell title="Campaign leads · Google Sheet" onClose={onClose}>
-      <p className="text-sm text-slate-500 mb-4">Share the sheet as "Anyone with the link can view". Paste the link of the exact tab you want to read.</p>
-      <div className="flex gap-2 mb-6">
-        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" className="flex-1 px-3 py-2.5 border border-slate-200 rounded-lg" data-testid="campaign-sheet-url-input" />
-        <button onClick={() => loadHeaders(url)} disabled={busy || !url} className="px-4 py-2.5 rounded-lg bg-slate-900 text-white text-sm disabled:opacity-50" data-testid="campaign-sheet-load-btn">Load columns</button>
-      </div>
-
-      <p className="text-sm font-semibold text-slate-900 mb-2">8 table columns — set the heading and pick the sheet column</p>
-      <div className="space-y-2 mb-6">
-        {columns.map((c, i) => (
-          <div key={i} className="grid grid-cols-[28px_1fr_1fr] gap-2 items-center">
-            <span className="text-xs text-slate-400 font-mono">{i + 1}</span>
-            <input value={c.heading} onChange={(e) => setCol(i, "heading", e.target.value)} placeholder="Heading" className="px-3 py-2 border border-slate-200 rounded-lg text-sm" data-testid={`campaign-heading-${i}`} />
-            <select value={c.sheet_column} onChange={(e) => setCol(i, "sheet_column", e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm" data-testid={`campaign-mapping-${i}`}>
-              <option value="">— not mapped —</option>
-              {[...new Set([...headers, c.sheet_column].filter(Boolean))].map((h) => <option key={h} value={h}>{h}</option>)}
-            </select>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid sm:grid-cols-2 gap-3 mb-6">
-        {roleSelect("name_col", "Which column is the name?")}
-        {roleSelect("phone_col", "Which column is the phone?")}
-        {roleSelect("branch_col", "Which column is Preferred Branch?")}
-        {roleSelect("online_branch_col", "For Online rows, which column has the branch?", true)}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-4 mb-4 text-sm">
-        <label className="flex items-center gap-2"><input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} data-testid="campaign-auto-sync-toggle" /> Auto-sync new rows every</label>
-        <input type="number" min={5} value={interval} onChange={(e) => setIntervalMin(e.target.value)} className="w-20 px-2 py-1.5 border border-slate-200 rounded-lg" data-testid="campaign-sync-interval" /> minutes
-      </div>
-      {!settings.last_sync && (
-        <label className="flex items-start gap-2 text-sm mb-6 bg-amber-50 text-amber-800 rounded-lg p-3">
-          <input type="checkbox" className="mt-0.5" checked={sendExisting} onChange={(e) => setSendExisting(e.target.checked)} data-testid="campaign-send-existing-toggle" />
-          Also send WhatsApp to rows already in the sheet. Leave this off to message only rows added after connecting.
-        </label>
-      )}
-      <div className="flex justify-end gap-2">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 text-sm">Cancel</button>
-        <button onClick={save} disabled={busy || !url} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50" data-testid="campaign-sheet-save-btn">
-          {settings.last_sync ? "Save" : "Save & import"}
-        </button>
-      </div>
-    </Shell>
   );
 }
 

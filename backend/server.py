@@ -4505,8 +4505,11 @@ class CampaignColumn(BaseModel):
     sheet_column: str = ""
 
 
-class CampaignSheetSettingsIn(BaseModel):
-    sheet_url: str
+class CampaignSheetIn(BaseModel):
+    spreadsheet_url: str
+    gid: str
+    tab_name: str = ""
+    label: str = ""
     columns: List[CampaignColumn]
     phone_col: int = 2
     name_col: int = 1
@@ -4520,12 +4523,45 @@ class CampaignSyncIn(BaseModel):
     send_to_existing: bool = False
 
 
-def _campaign_settings_out(doc: Optional[dict]) -> dict:
-    doc = doc or {}
-    cols = doc.get("columns") or [{"heading": h, "sheet_column": ""} for h in DEFAULT_CAMPAIGN_HEADINGS]
+def _spreadsheet_id(url: str) -> str:
+    m = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url or "")
+    if not m:
+        raise HTTPException(status_code=400, detail="Paste a valid Google Sheets link")
+    return m.group(1)
+
+
+def _tab_csv_url(doc: dict) -> str:
+    return f"https://docs.google.com/spreadsheets/d/{_spreadsheet_id(doc['spreadsheet_url'])}/edit#gid={doc['gid']}"
+
+
+async def fetch_sheet_tabs(sheet_url: str) -> List[dict]:
+    sid = _spreadsheet_id(sheet_url)
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            r = await client.get(f"https://docs.google.com/spreadsheets/d/{sid}/htmlview", timeout=30.0)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not reach Google Sheets: {e}")
+    found = re.findall(r'items\.push\(\{name: "((?:[^"\\]|\\.)*)", pageUrl: "[^"]*", gid: "(-?\d+)"', r.text)
+    if r.status_code != 200 or not found:
+        raise HTTPException(status_code=400, detail='Could not read the tabs. Share the sheet as "Anyone with the link can view".')
+    tabs = []
+    for name, gid in found:
+        try:
+            name = json.loads('"' + name.replace("\\x", "\\u00") + '"')
+        except Exception:
+            pass
+        tabs.append({"name": name, "gid": gid})
+    return tabs
+
+
+def _campaign_sheet_out(doc: dict) -> dict:
     return {
-        "sheet_url": doc.get("sheet_url", ""),
-        "columns": cols,
+        "campaign_sheet_id": doc["campaign_sheet_id"],
+        "label": doc.get("label") or doc.get("tab_name") or "Sheet",
+        "tab_name": doc.get("tab_name", ""),
+        "spreadsheet_url": doc.get("spreadsheet_url", ""),
+        "gid": doc.get("gid", "0"),
+        "columns": doc.get("columns") or [{"heading": h, "sheet_column": ""} for h in DEFAULT_CAMPAIGN_HEADINGS],
         "phone_col": doc.get("phone_col", 2),
         "name_col": doc.get("name_col", 1),
         "branch_col": doc.get("branch_col", 5),
@@ -4534,44 +4570,107 @@ def _campaign_settings_out(doc: Optional[dict]) -> dict:
         "sync_interval_minutes": doc.get("sync_interval_minutes", 15),
         "last_sync": doc.get("last_sync"),
         "last_sync_result": doc.get("last_sync_result"),
-        "configured": bool(doc.get("sheet_url")),
     }
 
 
-@api_router.get("/dashboard/campaign-sheet/settings")
-async def get_campaign_sheet_settings(email: str = Query(...), password: str = Query(...)):
-    user = _require_india_access(email, password)
-    return _campaign_settings_out(await db.settings.find_one({"type": _sheet_type(_account_of(user))}))
-
-
-@api_router.post("/dashboard/campaign-sheet/settings")
-async def save_campaign_sheet_settings(payload: CampaignSheetSettingsIn,
-                                       email: str = Query(...), password: str = Query(...)):
-    user = _require_india_access(email, password)
-    sheet_type = _sheet_type(_account_of(user))
-    if len(payload.columns) != CAMPAIGN_COLUMN_COUNT:
+def _validate_sheet_payload(p: CampaignSheetIn):
+    if len(p.columns) != CAMPAIGN_COLUMN_COUNT:
         raise HTTPException(status_code=422, detail=f"Exactly {CAMPAIGN_COLUMN_COUNT} columns are required")
-    for idx in (payload.phone_col, payload.name_col, payload.branch_col):
+    for idx in (p.phone_col, p.name_col, p.branch_col):
         if not 0 <= idx < CAMPAIGN_COLUMN_COUNT:
             raise HTTPException(status_code=422, detail="Invalid column index")
-    if not -1 <= payload.online_branch_col < CAMPAIGN_COLUMN_COUNT:
+    if not -1 <= p.online_branch_col < CAMPAIGN_COLUMN_COUNT:
         raise HTTPException(status_code=422, detail="Invalid column index")
-    await db.settings.update_one(
-        {"type": sheet_type},
-        {"$set": {
-            "type": sheet_type,
-            "sheet_url": payload.sheet_url.strip(),
-            "columns": [c.model_dump() for c in payload.columns],
-            "phone_col": payload.phone_col,
-            "name_col": payload.name_col,
-            "branch_col": payload.branch_col,
-            "online_branch_col": payload.online_branch_col,
-            "auto_sync_enabled": payload.auto_sync_enabled,
-            "sync_interval_minutes": max(5, payload.sync_interval_minutes),
-        }},
-        upsert=True,
-    )
-    return _campaign_settings_out(await db.settings.find_one({"type": sheet_type}))
+    _spreadsheet_id(p.spreadsheet_url)
+
+
+def _sheet_fields(p: CampaignSheetIn) -> dict:
+    return {
+        "spreadsheet_url": p.spreadsheet_url.strip(),
+        "gid": p.gid.strip(),
+        "tab_name": p.tab_name.strip(),
+        "label": (p.label or p.tab_name).strip(),
+        "columns": [c.model_dump() for c in p.columns],
+        "phone_col": p.phone_col,
+        "name_col": p.name_col,
+        "branch_col": p.branch_col,
+        "online_branch_col": p.online_branch_col,
+        "auto_sync_enabled": p.auto_sync_enabled,
+        "sync_interval_minutes": max(5, p.sync_interval_minutes),
+    }
+
+
+async def _migrate_legacy_campaign_sheets():
+    for account in ("india", "berlin"):
+        old = await db.settings.find_one({"type": _sheet_type(account)})
+        if not old or not old.get("sheet_url") or await db.campaign_sheets.find_one({"account": account}):
+            continue
+        gid = re.search(r"[#&?]gid=(\d+)", old["sheet_url"])
+        doc = {k: old.get(k) for k in ("columns", "phone_col", "name_col", "branch_col", "online_branch_col",
+                                        "auto_sync_enabled", "sync_interval_minutes", "last_sync", "last_sync_result") if k in old}
+        doc.update({"campaign_sheet_id": str(uuid.uuid4()), "account": account, "spreadsheet_url": old["sheet_url"],
+                    "gid": gid.group(1) if gid else "0", "tab_name": "", "label": "Sheet 1",
+                    "created_at": datetime.now(timezone.utc)})
+        await db.campaign_sheets.insert_one(doc)
+        await db.campaign_leads.update_many(
+            {"campaign_sheet_id": {"$exists": False}, **_account_query(account)},
+            {"$set": {"campaign_sheet_id": doc["campaign_sheet_id"]}},
+        )
+        logger.info(f"Migrated legacy campaign sheet for {account}")
+
+
+async def _get_sheet_or_404(sheet_id: str, account: str) -> dict:
+    doc = await db.campaign_sheets.find_one({"campaign_sheet_id": sheet_id, "account": account}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Sheet not found")
+    return doc
+
+
+@api_router.get("/dashboard/campaign-sheet/tabs")
+async def list_sheet_tabs(sheet_url: str = Query(...), email: str = Query(...), password: str = Query(...)):
+    _require_india_access(email, password)
+    return {"tabs": await fetch_sheet_tabs(sheet_url)}
+
+
+@api_router.get("/dashboard/campaign-sheets")
+async def list_campaign_sheets(email: str = Query(...), password: str = Query(...)):
+    user = _require_india_access(email, password)
+    docs = await db.campaign_sheets.find({"account": _account_of(user)}, {"_id": 0}).sort("created_at", 1).to_list(100)
+    return {"sheets": [_campaign_sheet_out(d) for d in docs]}
+
+
+@api_router.post("/dashboard/campaign-sheets")
+async def create_campaign_sheet(payload: CampaignSheetIn, email: str = Query(...), password: str = Query(...)):
+    user = _require_india_access(email, password)
+    _validate_sheet_payload(payload)
+    account = _account_of(user)
+    sid = _spreadsheet_id(payload.spreadsheet_url)
+    if await db.campaign_sheets.find_one({"account": account, "gid": payload.gid.strip(),
+                                          "spreadsheet_url": {"$regex": re.escape(sid)}}):
+        raise HTTPException(status_code=409, detail="This tab is already connected")
+    doc = {"campaign_sheet_id": str(uuid.uuid4()), "account": account,
+           "created_at": datetime.now(timezone.utc), **_sheet_fields(payload)}
+    await db.campaign_sheets.insert_one(doc)
+    return _campaign_sheet_out(doc)
+
+
+@api_router.put("/dashboard/campaign-sheets/{sheet_id}")
+async def update_campaign_sheet(sheet_id: str, payload: CampaignSheetIn,
+                                email: str = Query(...), password: str = Query(...)):
+    user = _require_india_access(email, password)
+    _validate_sheet_payload(payload)
+    account = _account_of(user)
+    await _get_sheet_or_404(sheet_id, account)
+    await db.campaign_sheets.update_one({"campaign_sheet_id": sheet_id}, {"$set": _sheet_fields(payload)})
+    return _campaign_sheet_out(await _get_sheet_or_404(sheet_id, account))
+
+
+@api_router.delete("/dashboard/campaign-sheets/{sheet_id}")
+async def delete_campaign_sheet(sheet_id: str, email: str = Query(...), password: str = Query(...)):
+    user = _require_india_access(email, password)
+    await _get_sheet_or_404(sheet_id, _account_of(user))
+    await db.campaign_sheets.delete_one({"campaign_sheet_id": sheet_id})
+    return {"success": True}
 
 
 def _clean_phone(raw: str) -> str:
@@ -4583,20 +4682,18 @@ def _clean_phone(raw: str) -> str:
     return phone
 
 
-async def _do_campaign_sheet_sync(send_to_existing: bool = False, account: str = "india") -> dict:
-    sheet_type = _sheet_type(account)
-    settings = await db.settings.find_one({"type": sheet_type})
-    if not settings or not settings.get("sheet_url"):
-        raise HTTPException(status_code=400, detail="Connect a Google Sheet first")
-    first_sync = not settings.get("last_sync")
+async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -> dict:
+    account = sheet["account"]
+    first_sync = not sheet.get("last_sync")
     send_messages = send_to_existing or not first_sync
 
-    csv_text = await fetch_google_sheet_csv(settings["sheet_url"])
+    csv_text = await fetch_google_sheet_csv(_tab_csv_url(sheet))
     import csv as _csv
     from io import StringIO
     reader = _csv.DictReader(StringIO(csv_text))
     lookup = {(h or "").strip().lower(): h for h in (reader.fieldnames or []) if h}
-    columns = settings["columns"]
+    columns = sheet["columns"]
+    label = sheet.get("label") or sheet.get("tab_name") or "Sheet"
 
     imported = skipped = queued = 0
     for row in reader:
@@ -4607,20 +4704,22 @@ async def _do_campaign_sheet_sync(send_to_existing: bool = False, account: str =
         if not any(values):
             skipped += 1
             continue
-        phone = _clean_phone(values[settings.get("phone_col", 2)])
+        phone = _clean_phone(values[sheet.get("phone_col", 2)])
         dedupe_key = phone or hashlib.sha256("|".join(values).encode()).hexdigest()
         if await db.campaign_leads.find_one({"dedupe_key": dedupe_key, **_account_query(account)}):
             skipped += 1
             continue
-        name = values[settings.get("name_col", 1)]
-        branch = values[settings.get("branch_col", 5)]
-        ob_col = settings.get("online_branch_col", -1)
+        name = values[sheet.get("name_col", 1)]
+        branch = values[sheet.get("branch_col", 5)]
+        ob_col = sheet.get("online_branch_col", -1)
         online_branch = values[ob_col] if 0 <= ob_col < len(values) else ""
         route_key = "berlin" if account == "berlin" else _branch_route_key(branch, online_branch)
         doc_id = str(uuid.uuid4())
         await db.campaign_leads.insert_one({
             "campaign_lead_id": doc_id,
             "account": account,
+            "campaign_sheet_id": sheet["campaign_sheet_id"],
+            "sheet_label": label,
             "values": values,
             "phone": phone,
             "name": name,
@@ -4644,42 +4743,61 @@ async def _do_campaign_sheet_sync(send_to_existing: bool = False, account: str =
             ))
 
     msg = f"Imported {imported}, skipped {skipped}, WhatsApp queued {queued}"
-    await db.settings.update_one(
-        {"type": sheet_type},
+    await db.campaign_sheets.update_one(
+        {"campaign_sheet_id": sheet["campaign_sheet_id"]},
         {"$set": {"last_sync": datetime.now(timezone.utc).isoformat(), "last_sync_result": msg}},
     )
-    logger.info(f"Campaign sheet sync [{account}]: {msg}")
-    return {"success": True, "imported": imported, "skipped": skipped, "whatsapp_queued": queued, "message": msg}
+    logger.info(f"Campaign sheet sync [{account}/{label}]: {msg}")
+    return {"success": True, "imported": imported, "skipped": skipped, "whatsapp_queued": queued, "message": f"{label}: {msg}"}
 
 
-@api_router.post("/dashboard/campaign-sheet/sync")
-async def sync_campaign_sheet(payload: CampaignSyncIn, email: str = Query(...), password: str = Query(...)):
+@api_router.post("/dashboard/campaign-sheets/sync-all")
+async def sync_all_campaign_sheets(email: str = Query(...), password: str = Query(...)):
     user = _require_india_access(email, password)
-    return await _do_campaign_sheet_sync(payload.send_to_existing, _account_of(user))
+    sheets = await db.campaign_sheets.find({"account": _account_of(user)}, {"_id": 0}).to_list(100)
+    if not sheets:
+        raise HTTPException(status_code=400, detail="Connect a Google Sheet first")
+    results = []
+    for sh in sheets:
+        try:
+            results.append((await _do_campaign_sheet_sync(sh))["message"])
+        except HTTPException as e:
+            results.append(f"{sh.get('label')}: {e.detail}")
+    return {"success": True, "message": " | ".join(results)}
+
+
+@api_router.post("/dashboard/campaign-sheets/{sheet_id}/sync")
+async def sync_campaign_sheet(sheet_id: str, payload: CampaignSyncIn,
+                              email: str = Query(...), password: str = Query(...)):
+    user = _require_india_access(email, password)
+    sheet = await _get_sheet_or_404(sheet_id, _account_of(user))
+    return await _do_campaign_sheet_sync(sheet, payload.send_to_existing)
 
 
 async def _maybe_run_campaign_sheet_sync():
     if db is None:
         return
-    for account in ("india", "berlin"):
-        s = await db.settings.find_one({"type": _sheet_type(account)})
-        if not s or not s.get("auto_sync_enabled") or not s.get("sheet_url") or not s.get("last_sync"):
-            continue
+    async for s in db.campaign_sheets.find({"auto_sync_enabled": True, "last_sync": {"$ne": None}}, {"_id": 0}):
         last = datetime.fromisoformat(s["last_sync"])
         if (datetime.now(timezone.utc) - last).total_seconds() < int(s.get("sync_interval_minutes", 15)) * 60:
             continue
-        await _do_campaign_sheet_sync(account=account)
+        try:
+            await _do_campaign_sheet_sync(s)
+        except Exception as e:
+            logger.error(f"Auto campaign sync failed for {s.get('label')}: {e}")
 
 
 @api_router.get("/dashboard/campaign-leads")
 async def list_campaign_leads(
     email: str = Query(...), password: str = Query(...),
     page: int = Query(1, ge=1), per_page: int = Query(20, ge=1, le=200),
-    search: str = Query(""), branch: str = Query(""),
+    search: str = Query(""), branch: str = Query(""), sheet_id: str = Query(""),
 ):
     user = _require_india_access(email, password)
     account = _account_of(user)
     query: dict = _account_query(account)
+    if sheet_id:
+        query["campaign_sheet_id"] = sheet_id
     if search:
         rx = {"$regex": re.escape(search), "$options": "i"}
         query["$or"] = [{"values": rx}, {"phone": rx}]
@@ -4692,7 +4810,9 @@ async def list_campaign_leads(
     async for d in cursor:
         d["created_at"] = d["created_at"].isoformat() if isinstance(d.get("created_at"), datetime) else d.get("created_at")
         items.append(d)
-    settings = _campaign_settings_out(await db.settings.find_one({"type": _sheet_type(account)}))
+    sheet = await db.campaign_sheets.find_one(
+        {"account": account, **({"campaign_sheet_id": sheet_id} if sheet_id else {})}, {"_id": 0}, sort=[("created_at", 1)])
+    settings = _campaign_sheet_out(sheet) if sheet else {"columns": [{"heading": h} for h in DEFAULT_CAMPAIGN_HEADINGS]}
     skipped_count = await db.campaign_leads.count_documents(
         {"whatsapp.status": "skipped", "phone": {"$nin": ["", None]}, **_account_query(account)})
     return {
@@ -4933,6 +5053,10 @@ async def startup_event():
                         shutil.copy2(src, dst)
     except Exception as e:
         logger.warning(f"Legacy upload migration skipped: {e}")
+    try:
+        await _migrate_legacy_campaign_sheets()
+    except Exception as e:
+        logger.warning(f"Campaign sheet migration skipped: {e}")
     # Launch background scheduler loop
     asyncio.create_task(_scheduler_loop())
 
