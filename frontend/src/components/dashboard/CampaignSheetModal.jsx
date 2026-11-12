@@ -82,6 +82,7 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
   const [headersByGid, setHeadersByGid] = useState({});
   const [sendExisting, setSendExisting] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [loadingTabs, setLoadingTabs] = useState(0);
 
   const connected = connectedSheets
     .filter((s) => s.campaign_sheet_id !== sheet?.campaign_sheet_id && sheetKey(s.spreadsheet_url) === sheetKey(url))
@@ -100,7 +101,7 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
   }, [credentials]);
 
   const loadHeaders = useCallback(async (gid) => {
-    setBusy(true);
+    setLoadingTabs((n) => n + 1);
     try {
       const tabUrl = `https://docs.google.com/spreadsheets/d/${sheetKey(url)}/edit#gid=${gid}`;
       const res = await axios.post(`${API}/dashboard/sheets/preview?${auth(credentials)}&sheet_url=${encodeURIComponent(tabUrl)}&sample_size=3`);
@@ -108,8 +109,18 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
       setHeadersByGid((m) => ({ ...m, [gid]: hs }));
       setColumns((cols) => cols.map((c) => (c.sheet_column ? c : { ...c, sheet_column: guessColumn(c.heading, hs) })));
     } catch (e) { toast.error(errMsg(e)); }
-    setBusy(false);
+    setLoadingTabs((n) => n - 1);
   }, [credentials, url]);
+
+  const headerKey = headers.join("|");
+  useEffect(() => {
+    if (!headers.length) return;
+    setColumns((cols) => cols.map((c) => (!c.sheet_column || headers.includes(c.sheet_column) ? c : { ...c, sheet_column: guessColumn(c.heading, headers) })));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headerKey]);
+
+  const phoneCol = columns[roles.phone_col]?.sheet_column;
+  const missingPhone = phoneCol ? picked.filter((t) => headersByGid[t.gid] && !headersByGid[t.gid].includes(phoneCol)) : [];
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (sheet) { findTabs(sheet.spreadsheet_url); loadHeaders(sheet.gid); } }, []);
@@ -201,12 +212,17 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
                 <input value={c.heading} onChange={(e) => setCol(i, "heading", e.target.value)} placeholder="Heading" className="w-full min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-sm" data-testid={`campaign-heading-${i}`} />
                 <select value={c.sheet_column} onChange={(e) => setCol(i, "sheet_column", e.target.value)} className="w-full min-w-0 truncate px-3 py-2 border border-slate-200 rounded-lg text-sm" data-testid={`campaign-mapping-${i}`}>
                   <option value="">— not mapped —</option>
-                  {[...new Set([...headers, c.sheet_column].filter(Boolean))].map((h) => <option key={h} value={h}>{h}</option>)}
+                  {[...new Set([...headers, headers.length ? "" : c.sheet_column].filter(Boolean))].map((h) => <option key={h} value={h}>{h}</option>)}
                 </select>
               </div>
             ))}
           </div>
 
+          {missingPhone.length > 0 && (
+            <p className="text-sm bg-amber-50 text-amber-800 rounded-lg p-3 mb-6" data-testid="campaign-missing-phone-warning">
+              {missingPhone.map((t) => t.name).join(", ")} {missingPhone.length === 1 ? "has" : "have"} no "{phoneCol}" column. For {missingPhone.length === 1 ? "that tab" : "those tabs"} the phone column is matched by name (e.g. phone / phone_number) during import.
+            </p>
+          )}
           <div className="grid sm:grid-cols-2 gap-3 mb-6">
             {roleSelect("name_col", "Which column is the name?")}
             {roleSelect("phone_col", "Which column is the phone?")}
@@ -228,7 +244,7 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
       )}
       <div className="flex justify-end gap-2">
         <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 text-sm">Cancel</button>
-        <button onClick={save} disabled={busy || !picked.length} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50" data-testid="campaign-sheet-save-btn">
+        <button onClick={save} disabled={busy || loadingTabs > 0 || !picked.length} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50" data-testid="campaign-sheet-save-btn">
           {isNew ? (picked.length > 1 ? `Connect ${picked.length} tabs & import` : "Save & import") : !sheet.last_sync ? "Save & import" : "Save"}
         </button>
       </div>

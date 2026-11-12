@@ -1,0 +1,36 @@
+{
+  "summary": "Tested multi-tab Google Sheet connect for India (admin) and Berlin (navya) plus the AiSensy 'Invalid Number' error rewrite. Backend pytest: 8/8 pass. It covers the tabs endpoint returning {tabs, title}, the 400 error for a bad URL, the auth check, multi-tab create storing spreadsheet_title, the 409 for a duplicate tab, account isolation for list and delete, editing via PUT, and delete. The unit test monkeypatches _send_whatsapp_api for berlin +49, berlin +968 and website 10-digit numbers; it confirms sent_to is the +intl number and the error is rewritten. In the UI, both accounts work: the title shows, all 5 tabs are listed, Select all / Clear all works, the count text and 'Connect N tabs & import' show, and send-existing and auto-sync are OFF by default. Saving creates one connection per tab and imports each one with WhatsApp queued 0. The group header reads 'VisaXpert Campaign Leads · 2 tabs connected' and the status reads '2 Google Sheets connected'. Connected tabs are disabled with a 'Connected' label, and Select all skips them. Edit mode is single-tab and saves a new tab and label. wa-error-text shows under the failed badge. One HIGH bug was found: the column mapping is left over from tabs that were deselected, so every Berlin lead was imported with no phone number.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/dashboard/campaign-leads/{id}/resend", "issue": "Returns result.get('error') from _send_whatsapp_api, which is the raw AiSensy text \"{'message': 'Invalid Number', 'name':'ERR400'}\". The friendly message is only written to the DB. So the toast after a resend still shows the raw error, although the badge text is correct after reload. Fix: have send_routed_whatsapp return the rewritten error, or use the DB value."},
+      {"endpoint": "PUT /api/dashboard/campaign-sheets/{id}", "issue": "Changing the gid/tab on a connection that has already synced keeps last_sync. The next Sync is then treated as a normal sync (send_messages=True), so it would send WhatsApp to every existing row of the new tab. The old tab's leads also stay attached. When the gid changes, the backend should reset last_sync (making it a first import) or refuse the change."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CampaignSheetModal column mapping", "issue": "Reproduced as navya: Find tabs -> Select all (loads headers for all 5 tabs) -> Clear all -> pick EU and NON-EU. The mapping still holds 'phone_number' from the India tabs, but EU and NON-EU use the header 'phone'. As a result, all 129 Berlin leads were imported with an empty phone, and no WhatsApp could ever be sent or resent to them. Cause: loadHeaders only fills columns that are not yet mapped, and the mapping is never re-checked when picked tabs change. The <select> also keeps the stale value as an option, so the mismatch is hidden. The same happens when tabs with different headers (e.g. an India Meta form and a Berlin form) are picked together: one shared mapping is applied to all of them. Fix: recompute the guesses from the headers of the currently picked tabs (clear values not in `headers`). Warn or block when a mapped column (at least the phone column) is missing in any picked tab. Optionally, let the backend fall back to synonyms (phone/phone_number).", "selector": "[data-testid^=campaign-mapping-]", "priority": "HIGH"},
+      {"component": "CampaignSheetModal busy state", "issue": "Each concurrent loadHeaders call (Select all) toggles the shared busy flag. The first call to finish re-enables Save while other headers are still loading, and the mapping can then be saved from a partial set of headers.", "selector": "[data-testid=campaign-sheet-save-btn]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_multi_tab_and_wa_error.py", "/app/test_reports/pytest/pytest_iter14.xml"],
+  "action_items": [
+    "HIGH: Fix the stale column mapping in CampaignSheetModal. Re-guess the mapping from the picked tabs' headers when the selection changes, and validate that the phone column exists in every picked tab (EU/NON-EU use 'phone', the India forms use 'phone_number').",
+    "Make the resend endpoint return the rewritten friendly 'WhatsApp rejected +num ...' error to the toast.",
+    "When editing a synced connection to point at a different tab: reset last_sync or delete the old tab's leads, so the next Sync does not mass-message every existing row."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 5100+ lines; split the campaign-sheets and WhatsApp routing code into their own modules.",
+    "Auth uses email/password in query strings on every request, so credentials end up in logs and browser history.",
+    "In fetch_sheet_tabs, parsing the htmlview HTML with a regex is fragile; if Google changes that markup, tab discovery breaks."
+  ],
+  "updated_files": ["/app/backend/tests/test_multi_tab_and_wa_error.py"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "~90% (all requested flows work; mapping bug causes Berlin phones to be empty)"},
+  "seed_data_creation": "None kept. Created 2 sheets per account via the UI (2 India tabs: 358 leads; EU and NON-EU for Berlin: 129 leads), plus TEST_ sheets via the API. Set whatsapp=failed on these test-created leads only, to render wa-error-text. Everything was removed afterwards via the UI Remove buttons. Final DB state: campaign_sheets=0, campaign_leads=0, whatsapp_messages=0. The temp DB wa_err_unit_tmp was dropped. No real WhatsApp was sent (every sync reported queued 0).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Spreadsheet tab gids: 99742259 (Centralized), 1798667875 (Pathankot copy) and 545121451 (Pathankot) use phone_number; 2139819490 (EU) and 1551110032 (NON-EU) use phone. To retest the mapping bug as navya: Select all -> Clear all -> pick EU and NON-EU, then check campaign-mapping-2 shows 'phone'. Run: cd /app/backend && python -m pytest tests/test_multi_tab_and_wa_error.py -v (no network sends). Never re-sync an already-synced sheet and never click resend or 'Send all skipped'. Delete sheets afterwards.",
+  "rca of the issue": "Mapping bug: SheetModal.loadHeaders runs setColumns(cols => cols.map(c => c.sheet_column ? c : guess)), so the first tab's headers that load win permanently. pickTab and pickAll never clear values that do not exist in the currently picked tabs' headers. The sync then looks up 'phone_number' in the EU/NON-EU CSV, finds nothing, gets values[2]='' and phone='', so the leads cannot be messaged."
+}

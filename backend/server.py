@@ -4457,7 +4457,7 @@ async def send_routed_whatsapp(route_key: Optional[str], phone: str, name: str =
         }}})
     log = logger.info if result.get("ok") else logger.error
     log(f"Routed WhatsApp [{route_key}] '{template}' to {sent_to}: {status} {error[:200]}")
-    return result
+    return {**result, "error": error} if error else result
 
 
 async def send_ivr_routed_whatsapp(phone: str, lead_id: str):
@@ -4678,8 +4678,11 @@ async def update_campaign_sheet(sheet_id: str, payload: CampaignSheetIn,
     user = _require_india_access(email, password)
     _validate_sheet_payload(payload)
     account = _account_of(user)
-    await _get_sheet_or_404(sheet_id, account)
     fields = _sheet_fields(payload)
+    current = await _get_sheet_or_404(sheet_id, account)
+    if current.get("gid") != fields["gid"] or _spreadsheet_id(current.get("spreadsheet_url", "")) != _spreadsheet_id(fields["spreadsheet_url"]):
+        fields.update({"last_sync": None, "last_sync_result": None})
+        await db.campaign_leads.delete_many({"campaign_sheet_id": sheet_id})
     await db.campaign_sheets.update_one({"campaign_sheet_id": sheet_id}, {"$set": fields})
     await db.campaign_leads.update_many({"campaign_sheet_id": sheet_id}, {"$set": {"sheet_label": fields["label"] or "Sheet"}})
     return _campaign_sheet_out(await _get_sheet_or_404(sheet_id, account))
@@ -4699,6 +4702,25 @@ def _possible_number(digits: str) -> bool:
         return phonenumbers.is_possible_number(phonenumbers.parse("+" + digits, None))
     except phonenumbers.NumberParseException:
         return False
+
+
+_HEADING_SYNONYMS = {
+    "date": ["date", "createdtime", "timestamp", "submittedat", "createdat"],
+    "name": ["fullname", "name", "studentname"],
+    "phone": ["phonenumber", "phone", "mobile", "mobilenumber", "contactnumber", "whatsappnumber"],
+    "email": ["email", "emailaddress"],
+    "campaign": ["campaignname", "campaign"],
+}
+
+
+def _guess_sheet_column(heading: str, headers: List[str]) -> str:
+    norm = lambda v: re.sub(r"[^a-z0-9]", "", (v or "").lower())
+    key = norm(heading)
+    for syn in _HEADING_SYNONYMS.get(key, [key]):
+        for h in headers:
+            if h and norm(h) == syn:
+                return h
+    return next((h for h in headers if h and key and key in norm(h)), "")
 
 
 def _clean_phone(raw: str, account: str = "india") -> str:
@@ -4732,7 +4754,8 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
     from io import StringIO
     reader = _csv.DictReader(StringIO(csv_text))
     lookup = {(h or "").strip().lower(): h for h in (reader.fieldnames or []) if h}
-    columns = sheet["columns"]
+    columns = [{**c, "sheet_column": c.get("sheet_column") if (not c.get("sheet_column") or c["sheet_column"].strip().lower() in lookup)
+                else _guess_sheet_column(c.get("heading", ""), reader.fieldnames or [])} for c in sheet["columns"]]
     label = sheet.get("label") or sheet.get("tab_name") or "Sheet"
 
     imported = skipped = queued = 0
