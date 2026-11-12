@@ -1,0 +1,32 @@
+{
+  "summary": "Retest of the iteration_14 fixes. All fixes are verified, and no WhatsApp message was sent during testing. Backend pytest: 13/13 pass (5 new tests plus 8 regression tests). (1) HIGH mapping bug fixed. As navya: Find tabs -> Select all -> Clear all -> pick EU and NON-EU. campaign-mapping-2 now shows 'phone' (it was 'phone_number'), and no warning appears. Saving imported EU (13) and NON-EU (117), each with WhatsApp queued 0. Of the 130 leads, 125 have +intl phones; 5 NON-EU rows were correctly flagged as invalid or duplicate. (2) Mixed tabs as admin (Centralized + EU): the amber campaign-missing-phone-warning shows. The backend _guess_sheet_column fallback gave all 13 EU leads phones while the mapping was 'phone_number'. A unit test confirms the same fallback with a monkeypatched CSV. (3) The Save button is disabled while headers load (loadingTabs) and is re-enabled only when every tab's headers have loaded. (4) A PUT that changes the gid sets last_sync to null and deletes that connection's old leads. This was checked live via the API and in the UI edit flow (332 Centralized leads removed; the card shows 'Not synced yet'). The next sync is a first import with queued 0 and all rows marked skipped. A PUT that keeps the same gid leaves last_sync and the leads unchanged. (5) The resend endpoint returns {success:false, error:'WhatsApp rejected +4917612345678: the number is not on WhatsApp or is not a real number'}. This was tested in-process with httpx ASGITransport, a temporary DB and a monkeypatched _send_whatsapp_api. (6) Regression: multi-select connect, the 'VisaXpert Campaign Leads · 2 tabs connected' header and '2 Google Sheets connected' all work for both accounts. One minor frontend bug was found (see ui_bugs).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "CampaignSheetModal re-guess effect",
+        "issue": "Columns that are empty are never re-guessed when new headers appear. The result depends on the order tabs are picked in. As navya: Select all -> Clear all -> pick EU (Country becomes '' because EU has no 'country' column) -> then pick NON-EU, which has 'country'. Country stays '— not mapped —', so NON-EU leads are imported without Country. Picking NON-EU first maps it correctly. The cause is the effect at line 118 (`!c.sheet_column || headers.includes(...) ? c : ...`), which keeps empty values as they are. Fix: also re-guess empty columns when headerKey changes, unless the user cleared the column by hand on purpose (track which columns were edited manually).",
+        "selector": "[data-testid=campaign-mapping-6]",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter15_mapping_gid_reset.py", "/app/backend/tests/test_multi_tab_and_wa_error.py", "/app/test_reports/pytest/pytest_iter15.xml"],
+  "action_items": [
+    "LOW: In CampaignSheetModal, re-guess empty (and not manually edited) mapping columns when the picked tabs' headers change, so the Country mapping does not depend on the order tabs are picked in.",
+    "Optional UX: after an edit changes the tab of a synced connection, the backend resets last_sync, but the frontend calls onSaved(..., !sheet.last_sync) and so does not auto-import. The user has to click Sync. Consider using res.data.last_sync == null to trigger the first import."
+  ],
+  "critical_code_review_comments": [
+    "The frontend SYNONYMS.phone is missing 'whatsappnumber', which the backend _HEADING_SYNONYMS has. This is harmless today but the two lists should be kept in sync.",
+    "Sync fallback only re-guesses mapped columns that are missing from the sheet. A column left empty in a mixed-tab mapping is never filled in for the other tabs.",
+    "server.py is still more than 5100 lines. Credentials are still passed in query strings."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter15_mapping_gid_reset.py"],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "95% (all requested flows pass; 1 low-priority mapping edge case)"},
+  "seed_data_creation": "None. Connections were created temporarily for testing and then deleted in both accounts; campaign_sheets=0 and campaign_leads=0 at the end. No lead has a whatsapp status of sent, failed or queued.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Tab gids: Centralized 99742259 (phone_number), EU 2139819490 (phone, no 'country' column), NON-EU 1551110032 (phone, has 'country'). Tests in test_iter15_mapping_gid_reset.py do first imports only (send_to_existing false). The gid-reset test checks that last_sync is null before it syncs again. Never run a second sync on a sheet that has already synced, and never click resend or 'Send all skipped'. Delete all sheets afterwards."
+}

@@ -83,6 +83,7 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
   const [sendExisting, setSendExisting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loadingTabs, setLoadingTabs] = useState(0);
+  const [manual, setManual] = useState(() => new Set(sheet ? sheet.columns.map((_, i) => i) : []));
 
   const connected = connectedSheets
     .filter((s) => s.campaign_sheet_id !== sheet?.campaign_sheet_id && sheetKey(s.spreadsheet_url) === sheetKey(url))
@@ -115,7 +116,11 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
   const headerKey = headers.join("|");
   useEffect(() => {
     if (!headers.length) return;
-    setColumns((cols) => cols.map((c) => (!c.sheet_column || headers.includes(c.sheet_column) ? c : { ...c, sheet_column: guessColumn(c.heading, headers) })));
+    setColumns((cols) => cols.map((c, i) => {
+      if (manual.has(i) && (!c.sheet_column || headers.includes(c.sheet_column))) return c;
+      if (c.sheet_column && headers.includes(c.sheet_column)) return c;
+      return { ...c, sheet_column: guessColumn(c.heading, headers) };
+    }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headerKey]);
 
@@ -144,7 +149,10 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
     free.filter((t) => !headersByGid[t.gid]).forEach((t) => loadHeaders(t.gid));
   };
 
-  const setCol = (i, key, val) => setColumns(columns.map((c, j) => (j === i ? { ...c, [key]: val } : c)));
+  const setCol = (i, key, val) => {
+    if (key === "sheet_column") setManual((m) => new Set(m).add(i));
+    setColumns(columns.map((c, j) => (j === i ? { ...c, [key]: val } : c)));
+  };
 
   const save = async () => {
     if (!picked.length) { toast.error("Choose at least one tab"); return; }

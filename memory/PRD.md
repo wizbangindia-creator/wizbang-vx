@@ -64,3 +64,4 @@ Study-abroad consultancy site: marketing pages, lead capture, WhatsApp (AiSensy)
 ## Iteration 9 (Nov 2026)
 - International phone fix: _format_phone keeps any +/00 country code (Malta, Lithuania, etc.); bare local numbers default to 49 when sent with the Berlin AiSensy key, 91 otherwise. Berlin sheet phones stored as +<intl>; Berlin short numbers without country code marked "invalid" (not sent). India sheet keeps non-91 +intl numbers. Phone column shows cleaned number; resend disabled when no valid phone.
 - Iteration 10: phonenumbers library for worldwide country-aware formatting; impossible +intl numbers in Berlin sheets marked invalid.
+- Iteration 11: connect multiple tabs at once (multi-select + Select all), spreadsheet title stored and connected sheets grouped by spreadsheet; per-tab header fallback (_guess_sheet_column) at sync; changing a connection's tab resets it; friendly "WhatsApp rejected +num" error shown under failed badge and in resend toast.
