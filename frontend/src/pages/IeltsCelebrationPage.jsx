@@ -305,7 +305,7 @@ export default function IeltsCelebrationPage() {
 
                     <div>
                       <label className="block text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wider">
-                        Email <span className="text-slate-400 font-normal normal-case">(optional — we&apos;ll email you the offer details)</span>
+                        Email <span className="text-slate-400 font-normal normal-case">(optional)</span>
                       </label>
                       <input type="email" name="email" value={formData.email} onChange={handleInputChange} placeholder="you@example.com"
                         className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-2 focus:ring-rose-400 focus:border-rose-400 outline-none text-sm transition-colors ${errors.email ? "border-red-400" : "border-amber-100"}`} data-testid="ielts-input-email" />

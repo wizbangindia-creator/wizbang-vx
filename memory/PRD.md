@@ -53,3 +53,6 @@ Study-abroad consultancy site: marketing pages, lead capture, WhatsApp (AiSensy)
 - P1: Dashboard Website stat counts only source=website (homepage source not counted) — pre-existing.
 - P2: Campaign leads status column (new/contacted), CSV export.
 - P2: IELTS Celebration landing page still mentions mock tests (intentionally untouched).
+
+## Iteration 7 (Nov 2026)
+- Email marketing removed completely: Resend import/key, all welcome/admin/Germany Fair/IELTS/Berlin booking emails, scheduled_emails queue + dispatcher. Frontend copy promising emails updated; Resend removed from privacy policies.

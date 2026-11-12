@@ -206,10 +206,6 @@ export default function PrivacyPolicyBerlinPage() {
             </p>
             <ul className="list-disc pl-6 space-y-1">
               <li>
-                <strong>Resend Inc.</strong> (USA) – Versand von Bestätigungs- und Erinnerungs-E-Mails.
-                SCC nach Art. 46 DSGVO.
-              </li>
-              <li>
                 <strong>WhatsApp Business Messaging-Anbieter</strong> – Versand transaktionaler
                 WhatsApp-Nachrichten auf Basis Ihrer Einwilligung.
               </li>
@@ -291,8 +287,8 @@ export default function PrivacyPolicyBerlinPage() {
               Drittlandtransfer
             </h3>
             <p>
-              Sofern Daten an Empfänger außerhalb der EU übermittelt werden (z. B. Resend in den
-              USA), erfolgt dies auf Grundlage von EU-Standardvertragsklauseln (Art. 46 Abs. 2
+              Sofern Daten an Empfänger außerhalb der EU übermittelt werden (z. B. AiSensy in
+              Indien), erfolgt dies auf Grundlage von EU-Standardvertragsklauseln (Art. 46 Abs. 2
               lit. c DSGVO) bzw. Ihrer ausdrücklichen Einwilligung (Art. 49 Abs. 1 lit. a DSGVO).
             </p>
 

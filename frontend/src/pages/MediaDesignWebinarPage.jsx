@@ -117,7 +117,7 @@ export default function MediaDesignWebinarPage() {
         highest_qualification: form.highest_qualification,
       });
       setDone(true);
-      toast.success("You're registered! Check your email for webinar details.");
+      toast.success("You're registered! Our team will contact you with webinar details.");
     } catch (err) {
       toast.error(err.response?.data?.detail || "Something went wrong. Please try again.");
     } finally {
@@ -220,7 +220,7 @@ export default function MediaDesignWebinarPage() {
                   </div>
                   <h3 className="mt-5 text-2xl font-bold">You're registered!</h3>
                   <p className="mt-2 text-slate-500">
-                    Our team will email you the webinar link and schedule your 1-on-1 meeting.
+                    Our team will send you the webinar link and schedule your 1-on-1 meeting.
                   </p>
                 </div>
               ) : (

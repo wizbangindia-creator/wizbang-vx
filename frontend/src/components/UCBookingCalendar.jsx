@@ -650,7 +650,7 @@ function BookingForm({ selectedDate, selectedTime, form, submitting, onChange, o
         )}
       </button>
       <p className="text-[11px] text-slate-500 text-center">
-        You&apos;ll get a confirmation email immediately, plus reminders 24 hours and 1 hour before your call.
+        Our Berlin team will confirm your slot on WhatsApp.
       </p>
     </form>
   );
@@ -707,10 +707,8 @@ function ConfirmationCard({ confirmation, onBookAnother, onCloseModal }) {
       <div className="text-left max-w-md mx-auto bg-slate-50 rounded-xl p-5 mb-6">
         <p className="text-sm font-semibold text-slate-900 mb-2">What happens next:</p>
         <ul className="text-sm text-slate-600 space-y-1.5">
-          <li>📧 Confirmation email (just sent)</li>
-          <li>🔔 Reminder email 24 hours before</li>
-          <li>⏰ Reminder email 1 hour before</li>
-          <li>📝 Follow-up email after your call</li>
+          <li>💬 WhatsApp message from our Berlin team</li>
+          <li>📞 We contact you at your booked time</li>
         </ul>
       </div>
 
