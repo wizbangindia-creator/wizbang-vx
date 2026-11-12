@@ -81,9 +81,19 @@ def test_stored_phones_international(synced):
     sids = {sid for sid, _ in synced.values()}
     leads = [x for x in leads if x["campaign_sheet_id"] in sids]
     assert leads
+    assert d["phone_col"] == 2
     bad = []
+    invalid = []
     for x in leads:
         raw = x["values"][2]
+        if not x["phone"]:
+            # bare short local numbers (<10 digits, no +/00) -> invalid, never sent
+            digits = re.sub(r"\D", "", raw)
+            assert digits and len(digits) < 10 and "+" not in raw and not digits.startswith("00"), x
+            assert x["whatsapp"]["status"] == "invalid", x
+            assert x["whatsapp"]["error"] == "Phone number has no country code"
+            invalid.append(raw)
+            continue
         assert x["phone"].startswith("+"), x
         expected = "+" + server._format_phone(raw, "49")
         if x["phone"] != expected:
@@ -103,6 +113,7 @@ def test_stored_phones_international(synced):
         for cc in ("+49", "+91", "+968", "+356", "+371", "+351", "+92", "+36", "+420"):
             if x["phone"].startswith(cc):
                 prefixes[cc] = prefixes.get(cc, 0) + 1
+    print("invalid:", invalid)
     print("country-code counts:", prefixes, "total leads:", len(leads))
     print("sample:", [(x["values"][2], x["phone"]) for x in leads[:8]])
     assert not bad, bad

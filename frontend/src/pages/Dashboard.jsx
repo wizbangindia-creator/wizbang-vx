@@ -585,7 +585,7 @@ export default function Dashboard() {
                     {activeTab === 'success_stories' && 'Anniversary stories'}
                   </h2>
                   <p className="hidden sm:block text-xs text-slate-500 truncate">
-                    {totalLeads} total leads
+                    {activeTab === 'campaign_leads' ? 'Leads imported from your Google Sheets' : `${totalLeads} total leads`}
                     {userInfo?.access === 'university_change' && ' · University change'}
                     {userInfo?.access === 'main_landing' && ' · Main landing'}
                   </p>

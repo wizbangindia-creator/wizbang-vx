@@ -60,3 +60,6 @@ Study-abroad consultancy site: marketing pages, lead capture, WhatsApp (AiSensy)
 ## Iteration 8 (Nov 2026)
 - Campaign Leads: multiple Google Sheets/tabs per account (India & Berlin, independent). Connect flow: paste link -> "Find tabs" -> choose tab -> map columns. New collection campaign_sheets; endpoints /api/dashboard/campaign-sheet/tabs, /api/dashboard/campaign-sheets (CRUD), /{id}/sync, /sync-all; leads filter by sheet_id. Legacy single-sheet settings auto-migrated on startup.
 - Dedupe per sheet; a phone already present in another sheet of the same account is imported as "duplicate" and not messaged again. Removing a sheet removes its leads; renaming updates lead labels.
+
+## Iteration 9 (Nov 2026)
+- International phone fix: _format_phone keeps any +/00 country code (Malta, Lithuania, etc.); bare local numbers default to 49 when sent with the Berlin AiSensy key, 91 otherwise. Berlin sheet phones stored as +<intl>; Berlin short numbers without country code marked "invalid" (not sent). India sheet keeps non-91 +intl numbers. Phone column shows cleaned number; resend disabled when no valid phone.

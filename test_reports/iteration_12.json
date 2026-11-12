@@ -1,0 +1,41 @@
+{
+  "summary": "Retested the follow-up fixes from iteration_11 for Berlin (Navya) phone handling. Unit tests passed 50/50 (34 regression + 16 new). Berlin: bare numbers shorter than 10 digits without +/00 now give '' from _clean_phone: 'p:99856137', 'p:27831710', 'p:512805365', '99572336', and the bidi-wrapped variant. Short numbers written with +/00 are still kept (+356, 00371, +370). India: '+65 9123 4567' -> '+6591234567', and _format_phone of that -> '6591234567' with no 91 added. '0065…', '+971…' and '+1…' are kept. Indian numbers still give 10 digits, and _format_phone of those gives 91… . The iteration_11 regression still passes, including the _send_via_aisensy destination check with the UC key and 49 default (monkeypatched, no network). E2E as navya: connected the NON-EU tab (115 rows) and the EU tab (13 rows) with send_to_existing=false and auto_sync off. Result: WhatsApp queued 0. Statuses: 123 skipped, 1 duplicate, 4 invalid. The 4 invalid rows are exactly the 4 bare short numbers, each with phone '' and the error 'Phone number has no country code'. The 6 +91 phones all came from raw 'p:+91…'. GET /api/dashboard/campaign-leads returns phone_col=2. UI: the Phone column shows cleaned numbers (+491774627243, +96894296116 …) and no 'p:+' is left in the table. The invalid row shows the raw 'p:99856137' with an orange 'invalid' badge (bg-orange-100 text-orange-700). 'Send all skipped (123)' leaves out the invalid rows. Cleanup done: campaign_sheets=0, campaign_leads=0.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/dashboard/campaign-leads/{id}/resend", "issue": "The resend button is still shown and enabled for invalid leads, which have an empty phone. Nothing is sent because _send_via_aisensy returns 'Missing AiSensy API key or phone', but the user gets a confusing error. I read the code but did not run it, to avoid real sends. Consider disabling resend in the UI when lead.phone is empty, or returning a 400 'Invalid phone'."},
+      {"endpoint": "GET /api/dashboard/campaign-leads", "issue": "phone_col comes from the first sheet only (sorted by created_at) when no sheet_id filter is set. If connected sheets map the phone to different column positions, the 'All sheets' view shows the cleaned phone in the wrong column for the other sheets. Both test sheets used phone_col=2, so this was not seen here."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Campaign Leads header", "issues": ["The subtitle still reads '0 total leads · University change' while the table shows 128 campaign leads. This is stale and carries over from iteration_11."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_berlin_phone_format.py",
+    "/app/backend/tests/test_berlin_campaign_sync_e2e.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: hide or disable the resend button for leads with an empty phone (status 'invalid')",
+    "Optional: return phone_col per lead or sheet so the 'All sheets' view handles sheets with different phone columns",
+    "Optional: fix the stale '0 total leads' subtitle on the Campaign Leads header"
+  ],
+  "critical_code_review_comments": [
+    "_clean_phone (Berlin): the <10-digit check counts all digits of the raw value, so an 11-digit bare number gets 49 added and a bare 12+ digit number with no 0/49 prefix is kept as +digits. This is acceptable.",
+    "bad_phone leads use a sha256 hash of the values as dedupe_key, so a re-sync does not duplicate them. That is correct.",
+    "server.py is about 5094 lines and should be split into modules."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_berlin_phone_format.py",
+    "/app/backend/tests/test_berlin_campaign_sync_e2e.py"
+  ],
+  "success_rate": {"backend": "100% (50/50 unit + 2/2 e2e)", "frontend": "100%"},
+  "seed_data_creation": "Created 2 campaign sheets (TEST_NON-EU, TEST_EU) for navya, which imported 128 leads. Deleted them through the API, then ran deleteMany on campaign_sheets/campaign_leads as requested. Final counts: 0/0.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The E2E test syncs each tab exactly once (the first sync never sends). Never re-sync an existing sheet, because that sends real AiSensy messages. KEEP_TEST_SHEETS=1 keeps the sheets for a UI check; delete them through the API afterwards. The E2E test now also accepts and asserts 'invalid' rows. For the UI: log in at /dashboard (login-email/login-password/login-submit), then click the sidebar text 'Campaign Leads'."
+}

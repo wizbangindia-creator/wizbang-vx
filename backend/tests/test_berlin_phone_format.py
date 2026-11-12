@@ -94,3 +94,38 @@ def test_send_via_aisensy_destination(monkeypatch, phone, use_uc, expected):
         api_key_override=server.AISENSY_API_KEY_UC if use_uc else None))
     assert res["ok"] is True
     assert captured["payload"]["destination"] == expected
+
+
+# iteration_12: Berlin bare short numbers (<10 digits, no +/00) -> '' (invalid)
+@pytest.mark.parametrize("raw", ["p:99856137", "p:27831710", "p:512805365", "99572336", "p:\u202a99856137\u202c"])
+def test_clean_phone_berlin_short_bare_invalid(raw):
+    assert server._clean_phone(raw, "berlin") == ""
+
+
+# Berlin: short numbers WITH +/00 are still kept
+@pytest.mark.parametrize("raw,expected", [
+    ("+356 9912 3456", "+35699123456"),
+    ("00371 2783 1710", "+37127831710"),
+    ("p:+37061234567", "+37061234567"),
+])
+def test_clean_phone_berlin_short_intl_kept(raw, expected):
+    assert server._clean_phone(raw, "berlin") == expected
+
+
+# iteration_12: India keeps non-91 international codes
+@pytest.mark.parametrize("raw,expected", [
+    ("+65 9123 4567", "+6591234567"),
+    ("0065 9123 4567", "+6591234567"),
+    ("+971 50 123 4567", "+971501234567"),
+    ("+1 415 555 2671", "+14155552671"),
+    ("+91 98765 43210", "9876543210"),
+    ("p:+919876543210", "9876543210"),
+    ("919876543210", "9876543210"),
+])
+def test_clean_phone_india_intl(raw, expected):
+    assert server._clean_phone(raw) == expected
+
+
+def test_format_phone_india_sg_no_91():
+    assert server._format_phone(server._clean_phone("+65 9123 4567")) == "6591234567"
+    assert server._format_phone(server._clean_phone("9876543210")) == "919876543210"

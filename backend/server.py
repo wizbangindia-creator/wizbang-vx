@@ -4832,9 +4832,12 @@ async def list_campaign_leads(
     total = await db.campaign_leads.count_documents(query)
     cursor = db.campaign_leads.find(query, {"_id": 0, "dedupe_key": 0}).sort("created_at", -1) \
         .skip((page - 1) * per_page).limit(per_page)
+    phone_cols = {s["campaign_sheet_id"]: s.get("phone_col", 2) async for s in db.campaign_sheets.find(
+        {"account": account}, {"_id": 0, "campaign_sheet_id": 1, "phone_col": 1})}
     items = []
     async for d in cursor:
         d["created_at"] = d["created_at"].isoformat() if isinstance(d.get("created_at"), datetime) else d.get("created_at")
+        d["phone_col"] = phone_cols.get(d.get("campaign_sheet_id"), 2)
         items.append(d)
     sheet = await db.campaign_sheets.find_one(
         {"account": account, **({"campaign_sheet_id": sheet_id} if sheet_id else {})}, {"_id": 0}, sort=[("created_at", 1)])
