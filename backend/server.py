@@ -3062,19 +3062,24 @@ class WhatsAppTemplate(BaseModel):
 
 
 def _format_phone(to_phone: str, default_cc: str = "91") -> str:
-    # Normalise: strip spaces, dashes, parens, leading "+"
-    formatted = (
-        to_phone.replace(" ", "")
-        .replace("-", "")
-        .replace("(", "")
-        .replace(")", "")
-        .lstrip("+")
-    )
-    # If a bare 10-digit number is given without a country code, assume default (India)
-    if not formatted.startswith(default_cc) and len(formatted) == 10:
-        formatted = default_cc + formatted
-    # Strip national trunk-prefix "0" right after the country code, e.g.
-    # "49 0 178…" → "49 178…" (Germany) or "91 0 98…" → "91 98…" (India).
+    """Return digits-only international number. Numbers written with + or 00 keep
+    their own country code; bare local numbers get `default_cc` (91 India, 49 Berlin)."""
+    raw = (to_phone or "").strip()
+    intl = re.match(r"^\D*(\+|00)", raw) is not None
+    formatted = re.sub(r"\D", "", raw)
+    if intl and formatted.startswith("00"):
+        formatted = formatted[2:]
+    if not intl:
+        if default_cc == "49":
+            if formatted.startswith("0"):
+                formatted = "49" + formatted[1:]
+            elif not formatted.startswith("49") and len(formatted) in (10, 11):
+                formatted = "49" + formatted
+        elif len(formatted) == 10:
+            formatted = default_cc + formatted
+        elif len(formatted) == 11 and formatted.startswith("0"):
+            formatted = default_cc + formatted[1:]
+    # Strip national trunk-prefix "0" right after the country code, e.g. "49 0 178…" → "49 178…".
     for cc in ("91", "49", "44", "1"):
         if formatted.startswith(cc + "0") and len(formatted) > len(cc) + 1:
             formatted = cc + formatted[len(cc) + 1 :]
@@ -3106,7 +3111,7 @@ async def _send_via_aisensy(to_phone: str, template_name: str, language_code: st
     if not effective_key or not to_phone:
         return {"ok": False, "error": "Missing AiSensy API key or phone"}
 
-    formatted_phone = _format_phone(to_phone)
+    formatted_phone = _format_phone(to_phone, "49" if effective_key == AISENSY_API_KEY_UC else "91")
 
     media_obj: dict = {}
     if media_url:
@@ -4676,7 +4681,10 @@ async def delete_campaign_sheet(sheet_id: str, email: str = Query(...), password
     return {"success": True, "leads_deleted": res.deleted_count}
 
 
-def _clean_phone(raw: str) -> str:
+def _clean_phone(raw: str, account: str = "india") -> str:
+    if account == "berlin":
+        digits = _format_phone(raw or "", "49")
+        return f"+{digits}" if digits else ""
     phone = re.sub(r"[^\d]", "", raw or "")
     if phone.startswith("91") and len(phone) == 12:
         phone = phone[2:]
@@ -4707,7 +4715,7 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
         if not any(values):
             skipped += 1
             continue
-        phone = _clean_phone(values[sheet.get("phone_col", 2)])
+        phone = _clean_phone(values[sheet.get("phone_col", 2)], account)
         dedupe_key = phone or hashlib.sha256("|".join(values).encode()).hexdigest()
         if await db.campaign_leads.find_one({"dedupe_key": dedupe_key, "campaign_sheet_id": sheet["campaign_sheet_id"]}):
             skipped += 1
