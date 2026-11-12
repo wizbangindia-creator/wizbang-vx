@@ -7,6 +7,22 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const auth = (c) => `email=${encodeURIComponent(c.email)}&password=${encodeURIComponent(c.password)}`;
 const errMsg = (e) => e?.response?.data?.detail || e.message || "Something went wrong";
 const DEFAULT_HEADINGS = ["Date", "Name", "Phone", "Email", "City", "Preferred Branch", "Country", "Campaign"];
+const norm = (v) => (v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const SYNONYMS = {
+  date: ["date", "createdtime", "timestamp", "submittedat", "createdat"],
+  name: ["fullname", "name", "studentname"],
+  phone: ["phonenumber", "phone", "mobile", "mobilenumber", "contactnumber"],
+  email: ["email", "emailaddress"],
+  campaign: ["campaignname", "campaign"],
+};
+const guessColumn = (heading, headers) => {
+  const key = norm(heading);
+  for (const syn of SYNONYMS[key] || [key]) {
+    const hit = headers.find((h) => norm(h) === syn);
+    if (hit) return hit;
+  }
+  return headers.find((h) => norm(h).includes(key)) || "";
+};
 const sheetKey = (url) => (url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/) || [])[1] || "";
 
 export function Shell({ title, onClose, children }) {
@@ -78,7 +94,7 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
       const tabUrl = `https://docs.google.com/spreadsheets/d/${sheetKey(url)}/edit#gid=${gid}`;
       const res = await axios.post(`${API}/dashboard/sheets/preview?${auth(credentials)}&sheet_url=${encodeURIComponent(tabUrl)}&sample_size=3`);
       setHeaders(res.data.headers);
-      setColumns((cols) => cols.map((c) => (c.sheet_column && res.data.headers.includes(c.sheet_column)) ? c : { ...c, sheet_column: res.data.headers.find((h) => h.toLowerCase().includes(c.heading.toLowerCase().split(" ").pop())) || "" }));
+      setColumns((cols) => cols.map((c) => (c.sheet_column && res.data.headers.includes(c.sheet_column)) ? c : { ...c, sheet_column: guessColumn(c.heading, res.data.headers) }));
       toast.success(`Found ${res.data.headers.length} columns, ${res.data.total_rows} rows`);
     } catch (e) { toast.error(errMsg(e)); }
     setBusy(false);
@@ -113,7 +129,7 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
   const roleSelect = (key, text, allowNone = false) => (
     <label className="text-sm">
       <span className="block text-slate-600 mb-1">{text}</span>
-      <select value={roles[key]} onChange={(e) => setRoles({ ...roles, [key]: Number(e.target.value) })} className="w-full px-3 py-2 border border-slate-200 rounded-lg" data-testid={`role-${key}`}>
+      <select value={roles[key]} onChange={(e) => setRoles({ ...roles, [key]: Number(e.target.value) })} className="w-full min-w-0 truncate px-3 py-2 border border-slate-200 rounded-lg" data-testid={`role-${key}`}>
         {allowNone && <option value={-1}>— none —</option>}
         {columns.map((c, i) => <option key={i} value={i}>{i + 1}. {c.heading || `Column ${i + 1}`}</option>)}
       </select>
@@ -140,10 +156,10 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
           <p className="text-sm font-semibold text-slate-900 mb-2">8 table columns — set the heading and pick the sheet column</p>
           <div className="space-y-2 mb-6">
             {columns.map((c, i) => (
-              <div key={i} className="grid grid-cols-[28px_1fr_1fr] gap-2 items-center">
+              <div key={i} className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,1fr)] gap-2 items-center">
                 <span className="text-xs text-slate-400 font-mono">{i + 1}</span>
-                <input value={c.heading} onChange={(e) => setCol(i, "heading", e.target.value)} placeholder="Heading" className="px-3 py-2 border border-slate-200 rounded-lg text-sm" data-testid={`campaign-heading-${i}`} />
-                <select value={c.sheet_column} onChange={(e) => setCol(i, "sheet_column", e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm" data-testid={`campaign-mapping-${i}`}>
+                <input value={c.heading} onChange={(e) => setCol(i, "heading", e.target.value)} placeholder="Heading" className="w-full min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-sm" data-testid={`campaign-heading-${i}`} />
+                <select value={c.sheet_column} onChange={(e) => setCol(i, "sheet_column", e.target.value)} className="w-full min-w-0 truncate px-3 py-2 border border-slate-200 rounded-lg text-sm" data-testid={`campaign-mapping-${i}`}>
                   <option value="">— not mapped —</option>
                   {[...new Set([...headers, c.sheet_column].filter(Boolean))].map((h) => <option key={h} value={h}>{h}</option>)}
                 </select>

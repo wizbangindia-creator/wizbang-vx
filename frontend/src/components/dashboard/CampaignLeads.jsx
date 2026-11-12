@@ -23,6 +23,7 @@ const WA_STYLE = {
   failed: "bg-red-100 text-red-700",
   skipped: "bg-slate-100 text-slate-500",
   queued: "bg-amber-100 text-amber-700",
+  duplicate: "bg-sky-100 text-sky-700",
 };
 
 function WaBadge({ wa }) {
@@ -117,11 +118,12 @@ export default function CampaignLeadsManager({ credentials }) {
   };
 
   const removeSheet = async (s) => {
-    if (!window.confirm(`Disconnect "${s.label}"? Leads already imported stay in the list.`)) return;
+    if (!window.confirm(`Disconnect "${s.label}"? Its imported leads will also be removed from this list.`)) return;
     try {
       await axios.delete(`${API}/dashboard/campaign-sheets/${s.campaign_sheet_id}?${auth(credentials)}`);
       if (sheetFilter === s.campaign_sheet_id) setSheetFilter("");
       loadSheets();
+      load();
     } catch (e) { toast.error(errMsg(e)); }
   };
 

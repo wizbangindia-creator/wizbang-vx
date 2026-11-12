@@ -4661,7 +4661,9 @@ async def update_campaign_sheet(sheet_id: str, payload: CampaignSheetIn,
     _validate_sheet_payload(payload)
     account = _account_of(user)
     await _get_sheet_or_404(sheet_id, account)
-    await db.campaign_sheets.update_one({"campaign_sheet_id": sheet_id}, {"$set": _sheet_fields(payload)})
+    fields = _sheet_fields(payload)
+    await db.campaign_sheets.update_one({"campaign_sheet_id": sheet_id}, {"$set": fields})
+    await db.campaign_leads.update_many({"campaign_sheet_id": sheet_id}, {"$set": {"sheet_label": fields["label"] or "Sheet"}})
     return _campaign_sheet_out(await _get_sheet_or_404(sheet_id, account))
 
 
@@ -4670,7 +4672,8 @@ async def delete_campaign_sheet(sheet_id: str, email: str = Query(...), password
     user = _require_india_access(email, password)
     await _get_sheet_or_404(sheet_id, _account_of(user))
     await db.campaign_sheets.delete_one({"campaign_sheet_id": sheet_id})
-    return {"success": True}
+    res = await db.campaign_leads.delete_many({"campaign_sheet_id": sheet_id})
+    return {"success": True, "leads_deleted": res.deleted_count}
 
 
 def _clean_phone(raw: str) -> str:
@@ -4706,9 +4709,11 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
             continue
         phone = _clean_phone(values[sheet.get("phone_col", 2)])
         dedupe_key = phone or hashlib.sha256("|".join(values).encode()).hexdigest()
-        if await db.campaign_leads.find_one({"dedupe_key": dedupe_key, **_account_query(account)}):
+        if await db.campaign_leads.find_one({"dedupe_key": dedupe_key, "campaign_sheet_id": sheet["campaign_sheet_id"]}):
             skipped += 1
             continue
+        seen_elsewhere = bool(phone) and await db.campaign_leads.find_one(
+            {"dedupe_key": dedupe_key, **_account_query(account)}) is not None
         name = values[sheet.get("name_col", 1)]
         branch = values[sheet.get("branch_col", 5)]
         ob_col = sheet.get("online_branch_col", -1)
@@ -4728,14 +4733,15 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
             "route_key": route_key,
             "dedupe_key": dedupe_key,
             "status": "new",
-            "whatsapp": None if send_messages else {
-                "template": "", "status": "skipped", "error": "Existing row at first connect",
+            "whatsapp": None if (send_messages and not seen_elsewhere) else {
+                "template": "", "status": "skipped" if not seen_elsewhere else "duplicate",
+                "error": "Existing row at first connect" if not seen_elsewhere else "Already in another connected sheet",
                 "at": datetime.now(timezone.utc).isoformat(),
             },
             "created_at": datetime.now(timezone.utc),
         })
         imported += 1
-        if send_messages and phone:
+        if send_messages and phone and not seen_elsewhere:
             queued += 1
             asyncio.create_task(send_routed_whatsapp(
                 route_key, phone, name, collection="campaign_leads",

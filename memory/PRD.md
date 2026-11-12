@@ -56,3 +56,7 @@ Study-abroad consultancy site: marketing pages, lead capture, WhatsApp (AiSensy)
 
 ## Iteration 7 (Nov 2026)
 - Email marketing removed completely: Resend import/key, all welcome/admin/Germany Fair/IELTS/Berlin booking emails, scheduled_emails queue + dispatcher. Frontend copy promising emails updated; Resend removed from privacy policies.
+
+## Iteration 8 (Nov 2026)
+- Campaign Leads: multiple Google Sheets/tabs per account (India & Berlin, independent). Connect flow: paste link -> "Find tabs" -> choose tab -> map columns. New collection campaign_sheets; endpoints /api/dashboard/campaign-sheet/tabs, /api/dashboard/campaign-sheets (CRUD), /{id}/sync, /sync-all; leads filter by sheet_id. Legacy single-sheet settings auto-migrated on startup.
+- Dedupe per sheet; a phone already present in another sheet of the same account is imported as "duplicate" and not messaged again. Removing a sheet removes its leads; renaming updates lead labels.

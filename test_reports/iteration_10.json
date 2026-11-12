@@ -1,0 +1,41 @@
+{
+  "summary": "Tested multi-tab Google Sheet connections for Campaign Leads on the backend (14/14 pytest pass) and in the UI (India admin and Berlin navyaarora). These all work: tab discovery (5 tabs with the correct gids), the tab picker, mapping, label defaulting to the tab name, Save & import (every row imported with WhatsApp status 'skipped' and 0 queued), a second tab of the same spreadsheet (the already connected tab shows 'Connected' and is disabled), 2 cards, the sheet filter with per-sheet totals (India: 332 + 24 = 356; Berlin: 13 + 114 = 127), the 'Sheet' column showing only under 'All sheets', per-sheet Sync / Edit (label only) / Remove, Sync all, 409 on a duplicate tab, 422 on a bad payload, the India/Berlin split (Berlin gets 404 on India sheet ids; the same tab can be connected in both accounts), and friendly errors for an invalid or private URL. Backend logs show no WhatsApp was sent while testing (every sync reported 'WhatsApp queued 0'). Cleanup is done: all sheets removed for both accounts, and campaign_leads and campaign_sheets are now empty.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "_do_campaign_sheet_sync (dedupe)", "issue": "Duplicate checking is account-wide, not per sheet. If a phone number is already imported from tab A, that row in tab B is skipped silently and never shows under B's filter (seen: Pathankot imported 24 of 26 rows)."},
+      {"endpoint": "DELETE /api/dashboard/campaign-sheets/{id}", "issue": "Leads stay in the list after a sheet is removed (the confirm text says so). They can no longer be filtered by sheet. They still count in skipped_count, so 'Send all skipped' would message them. Reconnecting the same tab imports 0 rows, because they are all treated as duplicates, and the new card shows 0 leads under its own filter."},
+      {"endpoint": "PUT /api/dashboard/campaign-sheets/{id}", "issue": "sheet_label is copied onto each lead at import time. After renaming a sheet, the 'Sheet' column keeps the old name: renamed to 'Pathankot Final', rows still showed 'Pathankot'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CampaignSheetModal auto-mapping", "issue": "The heading-to-column guess matches on the last word with substring includes, so Name maps to 'ad_name' (should be full_name), Campaign maps to 'campaign_id' (should be campaign_name), and Date is not mapped. Users must fix these by hand.", "selector": "[data-testid=campaign-mapping-1],[data-testid=campaign-mapping-7]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Connect sheet modal", "issues": ["Right after a tab's columns load, the mapping selects with long option text (e.g. which_branch_would_you_prefer_for_your_online_counselling_session?) overflow past the modal's right edge. Add min-w-0 / w-full on the grid selects."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_multi_campaign_sheets.py", "/app/test_reports/pytest/pytest_multi_sheets.xml"],
+  "action_items": [
+    "Make auto-mapping prefer exact or whole-word matches (full_name, phone_number, campaign_name, created_time) before substring matches.",
+    "SAFETY: after a synced sheet's phone/column mapping is changed in Edit, the next sync builds new dedupe keys (phone or a hash of the values), treats every row as new and sends real WhatsApp to all of them. Either recompute dedupe from the raw sheet row id ('id' column), or treat a mapping change as a 'first sync' (mark rows skipped).",
+    "Decide what happens to leads when a sheet is removed: delete them, or keep them and exclude them from skipped_count / send-skipped. Also handle reconnecting a removed tab.",
+    "Consider deduplicating per sheet (or on sheet+row id), or at least show 'already imported from another sheet' in the sync result.",
+    "Show the current sheet label in the Sheet column (look it up from campaign_sheets) instead of the label copied at import time.",
+    "Fix the overflow of the mapping selects in the modal."
+  ],
+  "critical_code_review_comments": [
+    "Edit plus re-sync can mass-send WhatsApp if the column mapping changes (dedupe_key comes from the mapped values). This is the highest risk.",
+    "The 409 duplicate check uses a regex substring on spreadsheet_url. This is fine because the id is escaped.",
+    "server.py is more than 5000 lines; split the campaign-sheet code into its own module.",
+    "list_campaign_leads always returns headings from the oldest sheet when sheet_id is empty. If tabs use different headings, the 'All sheets' view shows the wrong headers for other sheets' rows."
+  ],
+  "updated_files": ["/app/backend/tests/test_multi_campaign_sheets.py"],
+  "success_rate": {"backend": "100%", "frontend": "100% of requested flows (minor UX issues noted)"},
+  "seed_data_creation": "None left behind. All test sheets were removed, and the campaign_leads and campaign_sheets collections were emptied as requested. No legacy settings docs exist (checked).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the pytest with -n 0 (class state is shared). Test spreadsheet gids: 99742259, 1798667875, 545121451 (India), 2139819490 EU, 1551110032 NON-EU (Berlin). Headers differ per tab (Pathankot: where_would_you_prefer_to_attend_the_counselling_session?; EU/NON-EU: phone, country). Never click send-skipped, resend or the send-existing toggle, and never change the column mapping of a sheet that has already been synced (it would send real WhatsApp)."
+}
