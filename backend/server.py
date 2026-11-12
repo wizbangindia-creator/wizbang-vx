@@ -4682,9 +4682,16 @@ async def delete_campaign_sheet(sheet_id: str, email: str = Query(...), password
 
 
 def _clean_phone(raw: str, account: str = "india") -> str:
+    intl = re.match(r"^\D*(\+|00)", (raw or "").strip()) is not None
     if account == "berlin":
+        if not intl and len(re.sub(r"\D", "", raw or "")) < 10:
+            return ""
         digits = _format_phone(raw or "", "49")
         return f"+{digits}" if digits else ""
+    if intl:
+        digits = _format_phone(raw or "")
+        if not digits.startswith("91"):
+            return f"+{digits}"
     phone = re.sub(r"[^\d]", "", raw or "")
     if phone.startswith("91") and len(phone) == 12:
         phone = phone[2:]
@@ -4715,7 +4722,9 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
         if not any(values):
             skipped += 1
             continue
-        phone = _clean_phone(values[sheet.get("phone_col", 2)], account)
+        raw_phone = values[sheet.get("phone_col", 2)]
+        phone = _clean_phone(raw_phone, account)
+        bad_phone = bool(re.sub(r"\D", "", raw_phone)) and not phone
         dedupe_key = phone or hashlib.sha256("|".join(values).encode()).hexdigest()
         if await db.campaign_leads.find_one({"dedupe_key": dedupe_key, "campaign_sheet_id": sheet["campaign_sheet_id"]}):
             skipped += 1
@@ -4741,7 +4750,10 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
             "route_key": route_key,
             "dedupe_key": dedupe_key,
             "status": "new",
-            "whatsapp": None if (send_messages and not seen_elsewhere) else {
+            "whatsapp": {
+                "template": "", "status": "invalid", "error": "Phone number has no country code",
+                "at": datetime.now(timezone.utc).isoformat(),
+            } if bad_phone else None if (send_messages and not seen_elsewhere) else {
                 "template": "", "status": "skipped" if not seen_elsewhere else "duplicate",
                 "error": "Existing row at first connect" if not seen_elsewhere else "Already in another connected sheet",
                 "at": datetime.now(timezone.utc).isoformat(),
@@ -4833,6 +4845,7 @@ async def list_campaign_leads(
         "account": account,
         "skipped_count": skipped_count,
         "headings": [c.get("heading") or f"Column {i + 1}" for i, c in enumerate(settings["columns"])],
+        "phone_col": settings.get("phone_col", 2),
         "items": items,
         "total": total,
         "page": page,

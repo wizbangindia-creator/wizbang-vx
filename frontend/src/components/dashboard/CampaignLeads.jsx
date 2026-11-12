@@ -24,6 +24,7 @@ const WA_STYLE = {
   skipped: "bg-slate-100 text-slate-500",
   queued: "bg-amber-100 text-amber-700",
   duplicate: "bg-sky-100 text-sky-700",
+  invalid: "bg-orange-100 text-orange-700",
 };
 
 function WaBadge({ wa }) {
@@ -225,7 +226,7 @@ export default function CampaignLeadsManager({ credentials }) {
             {data.items.map((l) => (
               <tr key={l.campaign_lead_id} className="border-t border-slate-100 hover:bg-slate-50" data-testid={`campaign-lead-row-${l.campaign_lead_id}`}>
                 {showSheetCol && <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap max-w-[160px] truncate" title={l.sheet_label}>{l.sheet_label || "—"}</td>}
-                {l.values.map((v, i) => <td key={i} className="px-4 py-3 text-slate-700 whitespace-nowrap max-w-[220px] truncate" title={v}>{v || "—"}</td>)}
+                {l.values.map((v, i) => { const shown = i === data.phone_col && l.phone ? l.phone : v; return <td key={i} className="px-4 py-3 text-slate-700 whitespace-nowrap max-w-[220px] truncate" title={v}>{shown || "—"}</td>; })}
                 <td className="px-4 py-3 whitespace-nowrap"><WaBadge wa={l.whatsapp} /></td>
                 <td className="px-4 py-3 whitespace-nowrap text-right">
                   <button onClick={() => resend(l.campaign_lead_id)} className="p-1.5 text-slate-500 hover:text-green-600" title="Send WhatsApp again" data-testid={`campaign-resend-${l.campaign_lead_id}`}><Send size={15} /></button>

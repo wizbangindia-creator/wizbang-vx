@@ -1,0 +1,35 @@
+{
+  "summary": "Tested the Berlin (Navya) fix for international phone formatting. Unit tests (34/34): _format_phone keeps the country code of numbers written with +/00 (Malta, Lithuania, Oman, +49 0176 -> 49176…, US, UK, UAE). It strips 'p:' and \\u202a/\\u202c, adds 49 to bare Berlin numbers and 91 to bare India numbers, and leaves +91 as-is in both accounts. _clean_phone('berlin') returns +intl and the India path keeps 10 digits. _send_via_aisensy 'destination' was checked by monkeypatching httpx.AsyncClient.post (no network): the UC key gives the 49 default, other keys give 91. E2E as navya: connected the NON-EU (115 rows) and EU (13 rows) tabs and synced each once with send_to_existing=false (0 WhatsApp queued, 127 skipped + 1 duplicate). All 128 stored phones start with + and match their own country code: +49 (47), +356 (15), +36 (18), +371 (8), +968 (1), +91 (Indian numbers that were already +91), +92, +351, +420, +880, +977, +48, +359 and others. No German or other foreign number was turned into a 91 number. The Campaign Leads UI for Navya shows 128 leads, and searching for Oman/Malta numbers works. Cleanup done: campaign_sheets=0, campaign_leads=0.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "_format_phone (Berlin, default_cc 49)", "issue": "Bare short local numbers in the real sheet that have no country code and are not 10-11 digits get no country code added. They are stored and would be sent as-is: 'p:99856137' -> +99856137 (invalid), 'p:27831710' -> +27831710 (would go to South Africa), 'p:512805365' -> +512805365 (Peru), 'p:99572336' -> +99572336. These are probably Malta/Latvia/Lithuania local numbers. Consider marking numbers shorter than 10 digits without +/00 as 'invalid phone' instead of sending them."},
+      {"endpoint": "_format_phone (Berlin)", "issue": "A bare 10-digit Indian mobile in a Berlin sheet (e.g. '9876543210') becomes +499876543210. This follows the spec, but it is ambiguous. Meta sheets mostly use +cc, so the impact is low."},
+      {"endpoint": "_clean_phone (India) / _format_phone default 91", "issue": "In the India account, an international number whose digits total exactly 10 (e.g. Singapore +65 9123 4567 -> '6591234567') gets 91 prepended, because _clean_phone drops the '+' and loses the international marker. This is old behaviour that was kept on purpose, so it is noted only."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Campaign Leads (Navya)", "issues": ["The Phone column shows the raw sheet value ('p:+491774627243') instead of the cleaned lead.phone ('+491774627243'). Consider showing lead.phone.", "The header subtitle on the Campaign Leads page still reads '0 total leads · University change', which is the count from the Leads page, while the table shows 128 campaign leads."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_berlin_phone_format.py", "/app/backend/tests/test_berlin_campaign_sync_e2e.py"],
+  "action_items": [
+    "Optional: treat bare Berlin numbers shorter than 10 digits (no +/00) as invalid instead of sending them to +<digits>",
+    "Optional: show the cleaned lead.phone in the Campaign Leads Phone column",
+    "Optional: fix the stale '0 total leads' subtitle on the Campaign Leads page header"
+  ],
+  "critical_code_review_comments": [
+    "_format_phone: the intl regex ^\\D*(\\+|00) correctly allows 'p:' and bidi marks before the '+'. The trunk-0 strip loop only covers 91/49/44/1. For example '+356 0…' would not be stripped, but that is rare.",
+    "_send_via_bsp still calls _format_phone(to_phone) with default 91. This is fine for India only.",
+    "server.py is 5081 lines and should be split into modules."
+  ],
+  "updated_files": ["/app/backend/tests/test_berlin_phone_format.py", "/app/backend/tests/test_berlin_campaign_sync_e2e.py"],
+  "success_rate": {"backend": "100% (35/35 unit + e2e checks; one test failed first only because my threshold was set too high, and the data was correct)", "frontend": "100%"},
+  "seed_data_creation": "Created 2 campaign sheets (TEST_NON-EU, TEST_EU) for navya and 128 leads. All were deleted through the DELETE API. Final counts: campaign_sheets=0, campaign_leads=0.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The E2E test syncs each tab exactly once (the first sync never sends WhatsApp). Do NOT re-sync an existing sheet: a second sync sends real AiSensy messages to new rows. Set KEEP_TEST_SHEETS=1 to keep the sheets for a UI check, then delete them through the API. A sidebar click on 'Campaign Leads' text works; the [data-testid=campaign-leads-tab] selector was not found or visible in the sidebar."
+}
