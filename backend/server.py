@@ -16,6 +16,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import re
 import httpx
+import phonenumbers
 from motor.motor_asyncio import AsyncIOMotorClient
 import json
 try:
@@ -3079,11 +3080,13 @@ def _format_phone(to_phone: str, default_cc: str = "91") -> str:
             formatted = default_cc + formatted
         elif len(formatted) == 11 and formatted.startswith("0"):
             formatted = default_cc + formatted[1:]
-    # Strip national trunk-prefix "0" right after the country code, e.g. "49 0 178…" → "49 178…".
-    for cc in ("91", "49", "44", "1"):
-        if formatted.startswith(cc + "0") and len(formatted) > len(cc) + 1:
-            formatted = cc + formatted[len(cc) + 1 :]
-            break
+    # Country-aware cleanup for every country (e.g. drops the trunk "0" in "+33 06…", keeps Italy's "+39 06…").
+    try:
+        parsed = phonenumbers.parse("+" + formatted, None)
+        if phonenumbers.is_possible_number(parsed):
+            return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164).lstrip("+")
+    except phonenumbers.NumberParseException:
+        pass
     return formatted
 
 
