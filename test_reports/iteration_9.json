@@ -1,0 +1,38 @@
+{
+  "summary": "First run after the clone. The app runs. All 12 public pages load with no JS or API errors: /, /countries, /countries/germany, /branches, /branches/ludhiana, /about, /student-stories, /faq, /contact, /berlin, /germany-fair, /dashboard. /university-change redirects to /berlin. Backend pytest: 17/17 passed. These cover health, login for all 3 users (correct access value each), invalid login 401, scoped lists, stats, filters, campaign-leads and public endpoints. Only 3 live leads were submitted, all named 'Test Emergent', phones 9999900001-3: homepage hero form, the navbar 'Book free call' popup, and the Berlin form. All 3 showed a success state and were saved to the DB. Dashboard: invalid login shows 'Invalid email or password'. Admin sees all 3 leads; search, source and status filters work; the Campaign Leads tab renders ('No Google Sheet connected'); logout works. Sunil sees only the Hero and Popup leads; Navya sees only the Berlin lead. Integrations: AiSensy WhatsApp works (200 'sent' for both Indian numbers; the Berlin +49 fake number got 'Invalid Number', as expected). Google Sheets returns 405 on every lead. Resend email fails with 'API key is invalid'. The 3 test leads were deleted afterwards.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "send_to_google_sheets (all lead endpoints)", "issue": "GOOGLE_SHEET_WEBHOOK (process env) is set to a Google Sheets edit/share URL (docs.google.com/spreadsheets/d/11qQ.../edit?usp=sharing), not an Apps Script web-app /exec URL. Every POST returns 405 Method Not Allowed, so no lead reaches the sheet. This is a config problem: it needs the Apps Script deployment URL.", "priority": "HIGH"},
+      {"endpoint": "Resend emails (welcome + UC admin notification)", "issue": "RESEND_API_KEY in the process env is placeholder text ('i dont w...or now'), not a re_... key. Logs show 'Failed to send welcome email ... API key is invalid' and 'UC admin notification failed: API key is invalid'. No emails are sent until a real key is set.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/dashboard/leads", "issue": "Scope bypass. The `source` query param overwrites the user's scope filter (query['source'] = source). Navya (university_change only) with source=website or source=homepage can see main-landing leads; Sunil with source=university_change can see Berlin leads. Verified via the API. The UI shows the source filter dropdown to scoped users, so it can be reached from the UI too. Fix: combine with source_filter ($and) instead of overwriting."},
+      {"endpoint": "DELETE /api/dashboard/leads/{id}, PATCH status", "issue": "Only verify_auth is checked, with no scope check. A scoped user can delete or update any lead by id."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_clone_run_iter9.py", "/app/test_reports/pytest/pytest_iter9.xml"],
+  "action_items": [
+    "Set GOOGLE_SHEET_WEBHOOK to the Apps Script web-app URL (https://script.google.com/macros/s/.../exec), not the spreadsheet edit link (currently 405).",
+    "Set a valid RESEND_API_KEY (currently placeholder text, so all emails fail with 'API key is invalid').",
+    "Optional (pre-existing repo bug): in get_leads, AND the `source` param with get_source_filter so scoped users can't see other sources."
+  ],
+  "critical_code_review_comments": [
+    "get_leads overwrites the scope filter when `source` is passed, which leaks data between scoped accounts.",
+    "Dashboard auth passes email+password as query params on every request (they show up in access logs/URLs). Use the token returned by /dashboard/login instead.",
+    "Delete and status-update endpoints don't apply per-user scope.",
+    "Admin stats 'Website' card counts only source=='website'; hero-form leads (source 'homepage') fall under 'other', so the cards undercount homepage leads.",
+    "UCBookingCalendar.jsx is not imported anywhere, and uc-appointment-toggle is enabled:false. The Berlin flow is just the enquiry form; no slot booking was tested.",
+    "server.py (~5900 lines) and Dashboard.jsx (~5400 lines) are very large."
+  ],
+  "updated_files": ["/app/backend/tests/test_clone_run_iter9.py"],
+  "success_rate": {"backend": "100% (17/17 API tests); integrations: WhatsApp OK, Sheets FAIL (config), Email FAIL (config)", "frontend": "100%"},
+  "seed_data_creation": "3 live leads (Test Emergent Hero/Popup/Berlin, 9999900001-3), deleted by id afterwards. 2 real AiSensy WhatsApp sends went out to the fake numbers 9999900001/2.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Fresh DB (0 leads before testing). RESEND_API_KEY and GOOGLE_SHEET_WEBHOOK come from the process env, not backend/.env (backend/.env only has MONGO_URL, DB_NAME, CORS_ORIGINS). Run pytest with `-p no:xdist -o addopts=''`. Avoid the repo's test_smoke_clone.py because it creates ~6 live leads, each triggering real WhatsApp sends."
+}

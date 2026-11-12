@@ -41,7 +41,14 @@ Study-abroad consultancy site: marketing pages, lead capture, WhatsApp (AiSensy)
 - AiSensy keys hardcoded (no env override); key_hint shown in WhatsApp templates modal.
 - Campaign Leads "Send all skipped (N)" button: POST /api/dashboard/campaign-leads/send-skipped (per account, background, 0.5s spacing).
 
+## Re-clone (Nov 2026)
+- Repo re-cloned into /app, deps installed, 3 seed scripts run. All pages, forms, dashboard logins (3 users) and AiSensy WhatsApp verified working (iteration_9).
+- RESEND_API_KEY currently placeholder text -> emails not sending.
+- GOOGLE_SHEET_WEBHOOK is a sheet share link, not an Apps Script /exec URL -> 405, sheet sync not working.
+
 ## Backlog
+- P0: Real Resend key + Apps Script web-app URL for sheet sync.
+- P1: Pre-existing scope bypass: `source` param overrides user scope in GET /api/dashboard/leads; delete/patch lead have no scope check.
 - P1: Move hardcoded AiSensy keys to env/secrets.
 - P1: Dashboard Website stat counts only source=website (homepage source not counted) — pre-existing.
 - P2: Campaign leads status column (new/contacted), CSV export.
