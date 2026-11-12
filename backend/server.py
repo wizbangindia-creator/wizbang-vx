@@ -17,6 +17,7 @@ from datetime import datetime, timezone, timedelta
 import re
 import httpx
 import phonenumbers
+import html
 from motor.motor_asyncio import AsyncIOMotorClient
 import json
 try:
@@ -4444,14 +4445,18 @@ async def send_routed_whatsapp(route_key: Optional[str], phone: str, name: str =
             api_key_override=AISENSY_API_KEY_UC if is_berlin else None,
         )
     status = "sent" if result.get("ok") else "failed"
+    sent_to = "+" + _format_phone(phone, "49" if route_key == "berlin" else "91") if phone else ""
+    error = "" if result.get("ok") else str(result.get("error", ""))[:300]
+    if "Invalid Number" in error:
+        error = f"WhatsApp rejected {sent_to}: the number is not on WhatsApp or is not a real number"
     if doc_id:
         await db[collection].update_one({id_field: doc_id}, {"$set": {"whatsapp": {
-            "template": template, "status": status,
-            "error": "" if result.get("ok") else str(result.get("error", ""))[:300],
+            "template": template, "status": status, "sent_to": sent_to,
+            "error": error,
             "at": datetime.now(timezone.utc).isoformat(),
         }}})
     log = logger.info if result.get("ok") else logger.error
-    log(f"Routed WhatsApp [{route_key}] '{template}' to {phone}: {status} {result.get('error', '')[:200]}")
+    log(f"Routed WhatsApp [{route_key}] '{template}' to {sent_to}: {status} {error[:200]}")
     return result
 
 
@@ -4518,6 +4523,7 @@ class CampaignSheetIn(BaseModel):
     gid: str
     tab_name: str = ""
     label: str = ""
+    spreadsheet_title: str = ""
     columns: List[CampaignColumn]
     phone_col: int = 2
     name_col: int = 1
@@ -4542,7 +4548,7 @@ def _tab_csv_url(doc: dict) -> str:
     return f"https://docs.google.com/spreadsheets/d/{_spreadsheet_id(doc['spreadsheet_url'])}/edit#gid={doc['gid']}"
 
 
-async def fetch_sheet_tabs(sheet_url: str) -> List[dict]:
+async def fetch_sheet_tabs(sheet_url: str) -> dict:
     sid = _spreadsheet_id(sheet_url)
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -4559,7 +4565,9 @@ async def fetch_sheet_tabs(sheet_url: str) -> List[dict]:
         except Exception:
             pass
         tabs.append({"name": name, "gid": gid})
-    return tabs
+    title = re.search(r"<title>(.*?)</title>", r.text, re.S)
+    title = html.unescape(title.group(1)).rsplit(" - Google ", 1)[0].strip() if title else ""
+    return {"tabs": tabs, "title": title}
 
 
 def _campaign_sheet_out(doc: dict) -> dict:
@@ -4567,6 +4575,7 @@ def _campaign_sheet_out(doc: dict) -> dict:
         "campaign_sheet_id": doc["campaign_sheet_id"],
         "label": doc.get("label") or doc.get("tab_name") or "Sheet",
         "tab_name": doc.get("tab_name", ""),
+        "spreadsheet_title": doc.get("spreadsheet_title", ""),
         "spreadsheet_url": doc.get("spreadsheet_url", ""),
         "gid": doc.get("gid", "0"),
         "columns": doc.get("columns") or [{"heading": h, "sheet_column": ""} for h in DEFAULT_CAMPAIGN_HEADINGS],
@@ -4597,6 +4606,7 @@ def _sheet_fields(p: CampaignSheetIn) -> dict:
         "spreadsheet_url": p.spreadsheet_url.strip(),
         "gid": p.gid.strip(),
         "tab_name": p.tab_name.strip(),
+        "spreadsheet_title": p.spreadsheet_title.strip(),
         "label": (p.label or p.tab_name).strip(),
         "columns": [c.model_dump() for c in p.columns],
         "phone_col": p.phone_col,
@@ -4637,7 +4647,7 @@ async def _get_sheet_or_404(sheet_id: str, account: str) -> dict:
 @api_router.get("/dashboard/campaign-sheet/tabs")
 async def list_sheet_tabs(sheet_url: str = Query(...), email: str = Query(...), password: str = Query(...)):
     _require_india_access(email, password)
-    return {"tabs": await fetch_sheet_tabs(sheet_url)}
+    return await fetch_sheet_tabs(sheet_url)
 
 
 @api_router.get("/dashboard/campaign-sheets")

@@ -30,9 +30,12 @@ const WA_STYLE = {
 function WaBadge({ wa }) {
   if (!wa) return <span className="text-xs text-slate-400">Pending</span>;
   return (
-    <span title={wa.error || wa.template} className={`text-xs px-2 py-0.5 rounded-full font-medium ${WA_STYLE[wa.status] || WA_STYLE.skipped}`}>
-      {wa.status}{wa.template ? ` · ${wa.template}` : ""}
-    </span>
+    <div className="flex flex-col gap-0.5 max-w-[260px]">
+      <span title={wa.error || wa.template} className={`self-start text-xs px-2 py-0.5 rounded-full font-medium ${WA_STYLE[wa.status] || WA_STYLE.skipped}`}>
+        {wa.status}{wa.template ? ` · ${wa.template}` : ""}
+      </span>
+      {wa.status === "failed" && wa.error && <span className="text-[11px] text-red-600 whitespace-normal" data-testid="wa-error-text">{wa.error}</span>}
+    </div>
   );
 }
 
@@ -40,8 +43,28 @@ function SheetsPanel({ sheets, syncingId, onSync, onEdit, onRemove }) {
   if (sheets.length === 0) {
     return <p className="text-sm text-slate-400 px-1" data-testid="campaign-sheets-empty">No sheets connected yet. Click "Connect sheet" to add one.</p>;
   }
+  const groups = sheets.reduce((acc, s) => {
+    const key = s.spreadsheet_title || s.spreadsheet_url;
+    (acc[key] = acc[key] || []).push(s);
+    return acc;
+  }, {});
   return (
-    <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3" data-testid="campaign-sheets-list">
+    <div className="space-y-4" data-testid="campaign-sheets-list">
+      {Object.entries(groups).map(([key, list]) => (
+        <div key={key}>
+          <a href={list[0].spreadsheet_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-600 mb-2" data-testid="campaign-spreadsheet-group">
+            <FileSpreadsheet size={13} /> {list[0].spreadsheet_title || "Google Sheet"} · {list.length} tab{list.length === 1 ? "" : "s"} connected
+          </a>
+          <SheetCards sheets={list} syncingId={syncingId} onSync={onSync} onEdit={onEdit} onRemove={onRemove} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SheetCards({ sheets, syncingId, onSync, onEdit, onRemove }) {
+  return (
+    <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
       {sheets.map((s) => (
         <div key={s.campaign_sheet_id} className="border border-slate-200 rounded-lg p-3 flex flex-col gap-2" data-testid={`campaign-sheet-card-${s.campaign_sheet_id}`}>
           <div className="min-w-0">
@@ -248,7 +271,7 @@ export default function CampaignLeadsManager({ credentials }) {
 
       {editing !== undefined && (
         <SheetModal credentials={credentials} sheet={editing} connectedSheets={sheets} onClose={() => setEditing(undefined)}
-          onSaved={async (saved, firstImport, sendExisting) => { setEditing(undefined); await loadSheets(); load(); if (firstImport) syncSheet(saved, sendExisting); }} />
+          onSaved={async (saved, firstImport, sendExisting) => { setEditing(undefined); await loadSheets(); load(); if (firstImport) for (const s of saved) await syncSheet(s, sendExisting); }} />
       )}
       {showRoutes && <WaRoutesModal credentials={credentials} berlin={data.account === "berlin"} onClose={() => setShowRoutes(false)} />}
     </div>
