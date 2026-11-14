@@ -270,7 +270,7 @@ export default function CampaignLeadsManager({ credentials }) {
       </div>
 
       {editing !== undefined && (
-        <SheetModal credentials={credentials} sheet={editing} connectedSheets={sheets} onClose={() => setEditing(undefined)}
+        <SheetModal credentials={credentials} sheet={editing} connectedSheets={sheets} berlin={data.account === "berlin"} onClose={() => setEditing(undefined)}
           onSaved={async (saved, firstImport, sendExisting) => { setEditing(undefined); await loadSheets(); load(); if (firstImport) for (const s of saved) await syncSheet(s, sendExisting); }} />
       )}
       {showRoutes && <WaRoutesModal credentials={credentials} berlin={data.account === "berlin"} onClose={() => setShowRoutes(false)} />}

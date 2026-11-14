@@ -7,6 +7,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const auth = (c) => `email=${encodeURIComponent(c.email)}&password=${encodeURIComponent(c.password)}`;
 const errMsg = (e) => e?.response?.data?.detail || e.message || "Something went wrong";
 const DEFAULT_HEADINGS = ["Date", "Name", "Phone", "Email", "City", "Preferred Branch", "Country", "Campaign"];
+const BERLIN_HEADINGS = ["Date", "Name", "Phone", "Email", "City", "Country", "Campaign", "Form"];
 const norm = (v) => (v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 const SYNONYMS = {
   date: ["date", "createdtime", "timestamp", "submittedat", "createdat"],
@@ -14,6 +15,7 @@ const SYNONYMS = {
   phone: ["phonenumber", "phone", "mobile", "mobilenumber", "contactnumber"],
   email: ["email", "emailaddress"],
   campaign: ["campaignname", "campaign"],
+  form: ["formname", "form"],
 };
 const guessColumn = (heading, headers) => {
   const key = norm(heading);
@@ -68,14 +70,36 @@ function TabPicker({ tabs, picked, connected, multi, onPick, onPickAll }) {
   );
 }
 
-export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSaved }) {
+function BerlinMapping({ columns, headers, setCol }) {
+  const pick = (i, text) => (
+    <label className="text-sm">
+      <span className="block text-slate-600 mb-1">{text}</span>
+      <select value={columns[i].sheet_column} onChange={(e) => setCol(i, "sheet_column", e.target.value)} className="w-full min-w-0 truncate px-3 py-2 border border-slate-200 rounded-lg" data-testid={i === 1 ? "berlin-name-column" : "berlin-phone-column"}>
+        <option value="">— choose a column —</option>
+        {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+      </select>
+    </label>
+  );
+  return (
+    <div className="mb-6" data-testid="berlin-mapping">
+      <p className="text-sm font-semibold text-slate-900 mb-2">Which columns have the student's name and phone number?</p>
+      <div className="grid sm:grid-cols-2 gap-3">
+        {pick(1, "Name column")}
+        {pick(2, "Phone number column (with country code)")}
+      </div>
+      <p className="text-xs text-slate-500 mt-2">Date, email, city, country and campaign are filled in automatically when the sheet has them.</p>
+    </div>
+  );
+}
+
+export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClose, onSaved }) {
   const isNew = !sheet;
   const [url, setUrl] = useState(sheet?.spreadsheet_url || "");
   const [title, setTitle] = useState(sheet?.spreadsheet_title || "");
   const [tabs, setTabs] = useState([]);
   const [picked, setPicked] = useState(sheet ? [{ gid: sheet.gid, name: sheet.tab_name }] : []);
   const [label, setLabel] = useState(sheet?.label || "");
-  const [columns, setColumns] = useState(sheet?.columns || DEFAULT_HEADINGS.map((h) => ({ heading: h, sheet_column: "" })));
+  const [columns, setColumns] = useState(sheet?.columns || (berlin ? BERLIN_HEADINGS : DEFAULT_HEADINGS).map((h) => ({ heading: h, sheet_column: "" })));
   const [roles, setRoles] = useState({ phone_col: sheet?.phone_col ?? 2, name_col: sheet?.name_col ?? 1, branch_col: sheet?.branch_col ?? 5, online_branch_col: sheet?.online_branch_col ?? -1 });
   const [auto, setAuto] = useState(sheet?.auto_sync_enabled ?? false);
   const [interval, setIntervalMin] = useState(sheet?.sync_interval_minutes ?? 15);
@@ -157,6 +181,7 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
   const save = async () => {
     if (!picked.length) { toast.error("Choose at least one tab"); return; }
     if (!columns.some((c) => c.sheet_column)) { toast.error("Map at least one sheet column"); return; }
+    if (berlin && !columns[2].sheet_column) { toast.error("Choose the phone number column"); return; }
     setBusy(true);
     const base = { spreadsheet_url: url, spreadsheet_title: title, columns, ...roles, auto_sync_enabled: auto, sync_interval_minutes: Number(interval) || 15 };
     try {
@@ -212,6 +237,7 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
             <p className="text-sm text-slate-600 mb-6" data-testid="campaign-picked-count">{picked.length} tabs selected — each is connected separately and named after its tab. The column mapping below is used for all of them.</p>
           )}
 
+          {berlin ? <BerlinMapping columns={columns} headers={headers} setCol={setCol} /> : (<>
           <p className="text-sm font-semibold text-slate-900 mb-2">8 table columns — set the heading and pick the sheet column</p>
           <div className="space-y-2 mb-6">
             {columns.map((c, i) => (
@@ -237,6 +263,7 @@ export function SheetModal({ credentials, sheet, connectedSheets, onClose, onSav
             {roleSelect("branch_col", "Which column is Preferred Branch?")}
             {roleSelect("online_branch_col", "For Online rows, which column has the branch?", true)}
           </div>
+          </>)}
 
           <div className="flex flex-wrap items-center gap-4 mb-4 text-sm">
             <label className="flex items-center gap-2"><input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} data-testid="campaign-auto-sync-toggle" /> Auto-sync new rows every</label>

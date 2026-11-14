@@ -17,6 +17,7 @@ from datetime import datetime, timezone, timedelta
 import re
 import httpx
 import phonenumbers
+from phonenumbers import geocoder
 import html
 from motor.motor_asyncio import AsyncIOMotorClient
 import json
@@ -4427,6 +4428,23 @@ def _branch_route_key(branch: str, online_branch: str = "") -> Optional[str]:
     return None
 
 
+# Country calling codes Berlin WhatsApp is allowed to send to (list supplied by VisaXpert).
+BERLIN_ALLOWED_CALLING_CODES = {1, 7, 20, 27, 30, 31, 32, 33, 34, 36, 39, 40, 41, 43, 44, 45, 46, 47, 48, 49, 51, 52, 53, 54, 55, 56, 57, 58, 60, 61, 62, 63, 64, 65, 66, 81, 82, 84, 86, 90, 91, 92, 93, 94, 95, 98, 211, 212, 213, 216, 218, 220, 221, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 240, 241, 242, 244, 245, 248, 249, 250, 251, 252, 253, 254, 255, 256, 257, 258, 260, 261, 263, 264, 265, 266, 267, 268, 269, 291, 351, 352, 353, 354, 355, 356, 357, 358, 359, 370, 371, 372, 374, 375, 376, 377, 380, 381, 382, 385, 386, 387, 389, 420, 421, 423, 501, 502, 503, 504, 505, 506, 507, 509, 591, 592, 593, 595, 597, 598, 673, 675, 676, 678, 679, 680, 850, 852, 853, 855, 856, 880, 886, 960, 961, 962, 963, 964, 965, 966, 967, 968, 971, 972, 973, 974, 975, 976, 977, 992, 993, 994, 995, 996, 998}
+
+
+def _berlin_phone_problem(phone: str) -> str:
+    """Return a reason the Berlin number can't be messaged, or '' if it is fine."""
+    try:
+        parsed = phonenumbers.parse("+" + _format_phone(phone, "49"), None)
+    except phonenumbers.NumberParseException:
+        return "Not a valid phone number"
+    if parsed.country_code not in BERLIN_ALLOWED_CALLING_CODES:
+        return f"Country code +{parsed.country_code} is not in the supported country list"
+    if not phonenumbers.is_possible_number(parsed):
+        return f"+{parsed.country_code} number has the wrong length"
+    return ""
+
+
 async def send_routed_whatsapp(route_key: Optional[str], phone: str, name: str = "",
                                collection: str = "leads", id_field: str = "lead_id",
                                doc_id: Optional[str] = None) -> dict:
@@ -4436,6 +4454,8 @@ async def send_routed_whatsapp(route_key: Optional[str], phone: str, name: str =
         result = {"ok": False, "error": "No phone number"}
     elif not template:
         result = {"ok": False, "error": "No template for this branch"}
+    elif route_key == "berlin" and _berlin_phone_problem(phone):
+        result = {"ok": False, "error": _berlin_phone_problem(phone)}
     else:
         is_berlin = route_key == "berlin"
         params = [name or "there"] if (routes["send_name_param"] or is_berlin) else []
@@ -4770,12 +4790,22 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
         raw_phone = values[sheet.get("phone_col", 2)]
         phone = _clean_phone(raw_phone, account)
         bad_phone = bool(re.sub(r"\D", "", raw_phone)) and not phone
+        phone_problem = "Phone number has no country code" if bad_phone else (
+            _berlin_phone_problem(phone) if account == "berlin" and phone else "")
+        bad_phone = bool(phone_problem)
         dedupe_key = phone or hashlib.sha256("|".join(values).encode()).hexdigest()
         if await db.campaign_leads.find_one({"dedupe_key": dedupe_key, "campaign_sheet_id": sheet["campaign_sheet_id"]}):
             skipped += 1
             continue
         seen_elsewhere = bool(phone) and await db.campaign_leads.find_one(
             {"dedupe_key": dedupe_key, **_account_query(account)}) is not None
+        if account == "berlin" and phone:
+            for i, col in enumerate(columns):
+                if (col.get("heading") or "").strip().lower() == "country" and not values[i]:
+                    try:
+                        values[i] = geocoder.country_name_for_number(phonenumbers.parse(phone, None), "en")
+                    except phonenumbers.NumberParseException:
+                        pass
         name = values[sheet.get("name_col", 1)]
         branch = values[sheet.get("branch_col", 5)]
         ob_col = sheet.get("online_branch_col", -1)
@@ -4796,7 +4826,7 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
             "dedupe_key": dedupe_key,
             "status": "new",
             "whatsapp": {
-                "template": "", "status": "invalid", "error": "Phone number has no country code",
+                "template": "", "status": "invalid", "error": phone_problem,
                 "at": datetime.now(timezone.utc).isoformat(),
             } if bad_phone else None if (send_messages and not seen_elsewhere) else {
                 "template": "", "status": "skipped" if not seen_elsewhere else "duplicate",
@@ -4806,7 +4836,7 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
             "created_at": datetime.now(timezone.utc),
         })
         imported += 1
-        if send_messages and phone and not seen_elsewhere:
+        if send_messages and phone and not seen_elsewhere and not bad_phone:
             queued += 1
             asyncio.create_task(send_routed_whatsapp(
                 route_key, phone, name, collection="campaign_leads",
