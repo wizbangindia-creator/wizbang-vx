@@ -4775,6 +4775,8 @@ _HEADING_SYNONYMS = {
     "phone": ["phonenumber", "phone", "mobile", "mobilenumber", "contactnumber", "whatsappnumber"],
     "email": ["email", "emailaddress"],
     "campaign": ["campaignname", "campaign"],
+    "preferredbranch": ["preferredbranch", "branch", "howwouldyouprefertoattendacounsellingsession",
+                        "wherewouldyouprefertoattendthecounsellingsession"],
 }
 
 

@@ -1,0 +1,32 @@
+{
+  "summary": "Retest of the iter19 HIGH bug (a stale fixed online branch) in the India connect modal. No real WhatsApp was sent. Every import was a first import with send-existing OFF and auto-sync OFF, and UI saves were intercepted and aborted. FRONTEND: all items requested in the brief pass. (1) Centralized alone gives column=which_branch_would_you_prefer_for_your_online_counselling_session? and fixed=''. (2) Pathankot alone gives column='' and fixed='pathankot'. (3) Pathankot first, then Centralized, re-guesses to the column with fixed='' (the iter19 bug is fixed). (4) Centralized + Pathankot gives the column plus fixed='pathankot'. The POST payloads for both tabs carry both values, with auto off and send-existing off. (5) With both selects empty, save is blocked with the toast 'Choose which Online branch these leads should get' and no POST is sent. (6) A value picked by hand (fixed=jammu) stays after the tab changes. The Berlin modal has 0 online sections and 0 online selects. BACKEND: test_iter19 passes 9/9. test_iter20: 3 of 4 pass. When each tab is saved with its own branch header, the routing is correct. Centralized with column + fixed pathankot: online_ludhiana 115, online_amritsar 32, online_jammu 20, online_pathankot 9 (not inflated), with 0 rows falling back to the fixed value. Pathankot: online_pathankot 22 and pathankot 4. Offline rows keep online_branch ''. NEW BUG (HIGH): with the payload the UI actually sends for Centralized + Pathankot together, all 26 Pathankot rows get branch '' and route_key None. In that payload, Preferred Branch is mapped to Centralized's header how_would_you_prefer_to_attend_a_counselling_session? for both tabs. At sync time the backend's fallback guess (_guess_sheet_column for the 'Preferred Branch' heading) cannot find the Pathankot header where_would_you_prefer_to_attend_the_counselling_session?, because the backend _HEADING_SYNONYMS has no 'preferredbranch' entry. The frontend list does have that entry. So the multi-tab UI flow does not route Pathankot leads to online_pathankot or pathankot.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "_do_campaign_sheet_sync / _guess_sheet_column (server.py ~4772 and ~4823)", "issue": "Steps: connect Centralized and Pathankot together from the UI. The UI sends one mapping for both tabs, with Preferred Branch = how_would_you_prefer_to_attend_a_counselling_session?. The Pathankot tab has no such header, so the backend falls back to _guess_sheet_column('Preferred Branch'). _HEADING_SYNONYMS has no 'preferredbranch' key, so the guess returns ''. Result: Pathankot branch='' for all 26 rows and route_key=None, so no online_pathankot or pathankot template is used. Reproduced by test_pathankot_with_ui_payload. Fix: add \"preferredbranch\": [\"preferredbranch\", \"branch\", \"howwouldyouprefertoattendacounsellingsession\", \"wherewouldyouprefertoattendthecounsellingsession\"] to the backend _HEADING_SYNONYMS (mirror the frontend list, line 20). Alternatively, store a per-tab branch column on save.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Multi-tab connect Centralized+Pathankot", "issue": "There is a single shared column mapping, so the Pathankot tab is saved with Centralized's branch header. This depends on the backend fallback guess, which is currently broken (see the backend critical issue).", "affected_selectors": ["[data-testid='campaign-mapping-5']", "[data-testid='campaign-sheet-save-btn']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter20_online_col_and_fixed.py", "/app/backend/tests/test_iter19_online_fixed.py", "/app/test_reports/pytest/iter20.xml"],
+  "action_items": [
+    "HIGH: add a 'preferredbranch' synonyms entry to the backend _HEADING_SYNONYMS (same list as the frontend guessColumn). Then the Pathankot tab saved with Centralized's branch header resolves where_would_you_prefer_to_attend_the_counselling_session? at sync. Rerun test_iter20_online_col_and_fixed.py::test_pathankot_with_ui_payload.",
+    "Optional: on multi-tab save, send each tab its own guessed branch/phone headers taken from headersByGid[t.gid] instead of one shared mapping."
+  ],
+  "critical_code_review_comments": [
+    "onlineManual is set once and never reset. After any manual edit, changing tabs never re-guesses, even if the newly picked tabs no longer need that value. This is acceptable, but consider resetting it when the URL changes.",
+    "In multi-tab saves, one online_branch_fixed value is applied to every tab. With Centralized + Pathankot, Centralized online rows whose column value is empty would fall back to online_pathankot. The live data has 0 such rows today, but this is a latent misroute.",
+    "server.py is over 5200 lines. Split the campaign sheets and WhatsApp routing code into their own modules."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter20_online_col_and_fixed.py"],
+  "success_rate": {"backend": "92% (12/13 across iter19 and iter20; 1 HIGH failure in the multi-tab UI payload)", "frontend": "100% (every requested modal scenario and the Berlin regression pass)"},
+  "seed_data_creation": "Temporary India connections TEST_iter20_* were created, given a first import only (0 WhatsApp queued), and deleted by id. Final state: 2 sheets in total (Berlin EU and NON-EU, untouched), 0 India campaign_leads, 185 Berlin leads (unchanged). UI POSTs were aborted.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run pytest with -n 0. test_pathankot_with_ui_payload sends the exact multi-tab UI payload for the Pathankot tab (branch header = Centralized's CBR) and expects online_pathankot. In Playwright, intercept POST **/api/dashboard/campaign-sheets?* and abort it. Tab gids: Centralized 99742259, Pathankot 545121451. Never touch Berlin's EU/NON-EU sheets."
+}
