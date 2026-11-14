@@ -107,7 +107,9 @@ export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClos
   const [interval, setIntervalMin] = useState(sheet?.sync_interval_minutes ?? 15);
   const [headersByGid, setHeadersByGid] = useState({});
   const [onlineByGid, setOnlineByGid] = useState({});
-  const [onlineCol, setOnlineCol] = useState(sheet?.online_branch_column ? `col:${sheet.online_branch_column}` : sheet?.online_branch_fixed ? `fixed:${sheet.online_branch_fixed}` : "");
+  const [onlineCol, setOnlineCol] = useState(sheet?.online_branch_column || "");
+  const [onlineFixed, setOnlineFixed] = useState(sheet?.online_branch_fixed || "");
+  const [onlineManual, setOnlineManual] = useState(!!sheet);
   const [sendExisting, setSendExisting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loadingTabs, setLoadingTabs] = useState(0);
@@ -156,16 +158,14 @@ export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClos
   const branchHeader = columns[roles.branch_col]?.sheet_column;
   const needsOnline = !berlin && !!branchHeader && picked.some((t) => (onlineByGid[t.gid] || []).includes(branchHeader));
   const onlineChoices = headers.filter((h) => h !== branchHeader);
+  const pickedNames = picked.map((t) => t.name).join("|");
   useEffect(() => {
-    if (!needsOnline) return;
-    if (onlineCol.startsWith("col:") && onlineChoices.includes(onlineCol.slice(4))) return;
-    if (onlineCol.startsWith("fixed:")) return;
-    const col = onlineChoices.find((h) => /online/i.test(h) && /branch|centre|center/i.test(h));
-    const names = picked.map((t) => t.name.toLowerCase()).join(" ");
-    const fixed = ONLINE_BRANCHES.find((b) => names.includes(b.key));
-    setOnlineCol(col ? `col:${col}` : fixed ? `fixed:${fixed.key}` : "");
+    if (!needsOnline || onlineManual) return;
+    const names = pickedNames.toLowerCase();
+    setOnlineCol(onlineChoices.find((h) => /online/i.test(h) && /branch|centre|center/i.test(h)) || "");
+    setOnlineFixed(ONLINE_BRANCHES.find((br) => names.includes(br.key))?.key || "");
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsOnline, headerKey]);
+  }, [needsOnline, headerKey, pickedNames]);
   const phoneCol = columns[roles.phone_col]?.sheet_column;
   const missingPhone = phoneCol ? picked.filter((t) => headersByGid[t.gid] && !headersByGid[t.gid].includes(phoneCol)) : [];
 
@@ -200,11 +200,11 @@ export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClos
     if (!picked.length) { toast.error("Choose at least one tab"); return; }
     if (!columns.some((c) => c.sheet_column)) { toast.error("Map at least one sheet column"); return; }
     if (berlin && !columns[2].sheet_column) { toast.error("Choose the phone number column"); return; }
-    if (needsOnline && !onlineCol) { toast.error("Choose which column has the Online branch"); return; }
+    if (needsOnline && !onlineCol && !onlineFixed) { toast.error("Choose which Online branch these leads should get"); return; }
     setBusy(true);
     const base = { spreadsheet_url: url, spreadsheet_title: title, columns, ...roles,
-      online_branch_column: needsOnline && onlineCol.startsWith("col:") ? onlineCol.slice(4) : "",
-      online_branch_fixed: needsOnline && onlineCol.startsWith("fixed:") ? onlineCol.slice(6) : "", online_branch_col: needsOnline ? -1 : roles.online_branch_col, auto_sync_enabled: auto, sync_interval_minutes: Number(interval) || 15 };
+      online_branch_column: needsOnline ? onlineCol : "",
+      online_branch_fixed: needsOnline ? onlineFixed : "", online_branch_col: needsOnline ? -1 : roles.online_branch_col, auto_sync_enabled: auto, sync_interval_minutes: Number(interval) || 15 };
     try {
       if (!isNew) {
         const t = picked[0];
@@ -286,16 +286,23 @@ export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClos
           {needsOnline && (
             <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-3" data-testid="online-branch-section">
               <p className="text-sm font-semibold text-blue-900 mb-1">Some students chose "Online". Which Online branch should they get?</p>
-              <p className="text-xs text-blue-800 mb-2">Pick the column where students chose their Online branch, or — if this form has no such column — one Online branch for all of them. The matching WhatsApp template is sent (e.g. Online · Ludhiana).</p>
-              <select value={onlineCol} onChange={(e) => setOnlineCol(e.target.value)} className="w-full min-w-0 truncate px-3 py-2 border border-blue-200 bg-white rounded-lg text-sm" data-testid="online-branch-column">
-                <option value="">— choose —</option>
-                <optgroup label="Send every Online lead as">
-                  {ONLINE_BRANCHES.map((b) => <option key={b.key} value={`fixed:${b.key}`}>{b.label}</option>)}
-                </optgroup>
-                <optgroup label="Or read the branch from this column">
-                  {onlineChoices.map((h) => <option key={h} value={`col:${h}`}>{h}</option>)}
-                </optgroup>
-              </select>
+              <p className="text-xs text-blue-800 mb-3">The matching WhatsApp template is sent (e.g. Online · Ludhiana).</p>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="text-sm">
+                  <span className="block text-blue-900 mb-1">Column where students chose their Online branch</span>
+                  <select value={onlineCol} onChange={(e) => { setOnlineManual(true); setOnlineCol(e.target.value); }} className="w-full min-w-0 truncate px-3 py-2 border border-blue-200 bg-white rounded-lg text-sm" data-testid="online-branch-column">
+                    <option value="">— this form has no such column —</option>
+                    {[...new Set([...onlineChoices, onlineCol].filter(Boolean))].map((h) => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <span className="block text-blue-900 mb-1">{onlineCol ? "If that column is empty, send as" : "Send every Online lead as"}</span>
+                  <select value={onlineFixed} onChange={(e) => { setOnlineManual(true); setOnlineFixed(e.target.value); }} className="w-full min-w-0 px-3 py-2 border border-blue-200 bg-white rounded-lg text-sm" data-testid="online-branch-fixed">
+                    <option value="">{onlineCol ? "Online (general template)" : "— choose —"}</option>
+                    {ONLINE_BRANCHES.map((br) => <option key={br.key} value={br.key}>{br.label}</option>)}
+                  </select>
+                </label>
+              </div>
             </div>
           )}
           </>)}

@@ -4863,7 +4863,7 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
         online_branch = values[ob_col] if 0 <= ob_col < len(values) else ""
         if online_header:
             online_branch = str(row.get(online_header) or "").strip()
-        if not online_branch and sheet.get("online_branch_fixed"):
+        if not online_branch and sheet.get("online_branch_fixed") and "online" in branch.lower():
             online_branch = sheet["online_branch_fixed"]
         route_key = "berlin" if account == "berlin" else _branch_route_key(branch, online_branch)
         doc_id = str(uuid.uuid4())

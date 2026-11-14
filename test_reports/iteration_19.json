@@ -1,0 +1,34 @@
+{
+  "summary": "Retest of the iter18 HIGH bugs for India Online-branch routing. No real WhatsApp was sent: every import was a first import with send-existing OFF and auto-sync OFF, and the UI POSTs were intercepted and aborted. BACKEND: test_iter19_online_fixed.py has 9 tests and all pass. (1) online_branch_fixed accepts only jammu/pathankot/ludhiana/amritsar. 'Jammu' is saved as 'jammu'; 'delhi' and 'online_pathankot' are saved as ''. PUT updates the value. (2) Live first import of Pathankot (gid 545121451) with fixed pathankot: 26 rows, online_pathankot 22, pathankot 4, 0 rows on the generic 'online' route, all skipped. (3) Pathankot copy (gid 1798667875): online_pathankot 39, pathankot 13 (47 skipped, 5 duplicate). (4) Centralized with the column still gives online_<branch> from the column: online_ludhiana 115, online_amritsar 32, online_jammu 20, online_pathankot 9, ludhiana 118, amritsar 70, jammu 50, pathankot 13. These match iter18. FRONTEND: (a) Centralized auto-fills col:which_branch_would_you_prefer_for_your_online_counselling_session?. The two optgroups are present ('Send every Online lead as' with fixed:<key>, and 'Or read the branch from this column' with col:<header>). (b) Pathankot and Pathankot copy auto-fill fixed:pathankot. (c) Switching Centralized to Pathankot re-guesses. The payload has online_branch_column '', online_branch_fixed 'pathankot', online_branch_col -1, auto off, and send-existing unchecked. (d) Choosing the empty option blocks save with the toast 'Choose which column has the Online branch' and sends no POST. Choosing fixed:jammu by hand gives the payload ('', 'jammu'). Berlin modal: berlin-mapping is shown, with 0 online sections and 0 role selects. NEW BUG FOUND (HIGH): the reverse switch does not re-guess. If you pick Pathankot and then switch to Centralized, the value stays fixed:pathankot. The POST for Centralized then has online_branch_column '' and online_branch_fixed 'pathankot'. The backend then sends every Centralized Online lead (176 rows) the online_pathankot template, not the branch chosen in the column. The same happens when Centralized and Pathankot are picked together: one fixed:pathankot value is applied to both tabs.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "_do_campaign_sheet_sync", "issue": "online_branch is set to online_branch_fixed for every row, offline ones too. So offline 'pathankot_branch' rows store online_branch='pathankot'. The route is still correct, but the stored data is misleading. Apply the fixed value only when 'online' is in the branch."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CampaignSheetModal online-branch effect (lines 159-168)", "issue": "Line 162 has `if (onlineCol.startsWith('fixed:')) return;`, so a fixed value is never re-guessed. Steps: pick Pathankot (auto fixed:pathankot), deselect it, pick Centralized. The value stays fixed:pathankot instead of col:which_branch_..., and Save sends online_branch_fixed='pathankot' with online_branch_column=''. Result: all Centralized Online leads get the Online · Pathankot WhatsApp. Reproduced twice. Fix: re-guess whenever headerKey changes (or keep a fixed value only if the user picked it by hand), and prefer a col: candidate when the new headers have one.", "selector": "[data-testid='online-branch-column']", "priority": "HIGH"},
+      {"component": "CampaignSheetModal multi-tab", "issue": "When Centralized and Pathankot are picked together, one online value (fixed:pathankot) is used for both tabs. Centralized online rows are then misrouted. Consider a separate online choice per tab, or prefer col: when any picked tab has the column. The backend fallback (fixed applied only when the column value is empty) would then handle Pathankot correctly. Note that sending both online_branch_column and online_branch_fixed together is not possible from the UI today.", "selector": "[data-testid='online-branch-column']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter19_online_fixed.py", "/app/backend/tests/test_iter18_online_branch.py", "/app/test_reports/pytest/iter19.xml"],
+  "action_items": [
+    "HIGH: CampaignSheetModal.jsx useEffect at line 162. Do not keep a stale fixed:<branch> when the picked tabs or headers change. Re-guess so that Centralized gets col:which_branch_would_you_prefer_for_your_online_counselling_session? after Pathankot was picked first.",
+    "MEDIUM: multi-tab selection that mixes Centralized and Pathankot. Prefer the column, and let the backend use online_branch_fixed only as a per-row fallback. Or allow sending both the column and the fixed value (the backend already supports this), or let the user choose per tab.",
+    "Minor: store online_branch_fixed in lead.online_branch only for online rows."
+  ],
+  "critical_code_review_comments": [
+    "The online-branch useEffect depends only on [needsOnline, headerKey] and returns early for any fixed: value. Track a 'user touched' flag the way `manual` is used for the column mapping.",
+    "The backend fallback 'online' + 'branch' header heuristic runs only when a wanted column is set. That is fine.",
+    "server.py is over 5200 lines. Split out campaign sheets and WA routing."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter19_online_fixed.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "86% (requested items a-d and the Berlin regression pass; the reverse switch Pathankot to Centralized fails)"},
+  "seed_data_creation": "Temporary India connections TEST_iter19_* (Pathankot, Pathankot copy, Centralized, plus validation and PUT tabs) were created, given a first import only (0 WhatsApp queued), and then deleted by id. Final state: India has 0 sheets and 0 campaign_leads. Berlin has 2 sheets and 185 leads, unchanged. UI POSTs were aborted, so nothing was created from the UI.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The public URL is in frontend/.env (wizbang-vx--...). Run pytest with -n 0. In Playwright, intercept POST **/api/dashboard/campaign-sheets?* and abort it to capture the payload. Retest the case where Pathankot is picked first, then Centralized (expect col:which_branch_...). Pathankot tabs use the branch column where_would_you_prefer_to_attend_the_counselling_session?. Never touch Berlin's EU/NON-EU sheets."
+}
