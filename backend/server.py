@@ -4571,6 +4571,7 @@ class CampaignSheetIn(BaseModel):
     branch_col: int = 5
     online_branch_col: int = -1
     online_branch_column: str = ""
+    online_branch_fixed: str = ""
     auto_sync_enabled: bool = False
     sync_interval_minutes: int = 15
 
@@ -4626,6 +4627,7 @@ def _campaign_sheet_out(doc: dict) -> dict:
         "branch_col": doc.get("branch_col", 5),
         "online_branch_col": doc.get("online_branch_col", -1),
         "online_branch_column": doc.get("online_branch_column", ""),
+        "online_branch_fixed": doc.get("online_branch_fixed", ""),
         "auto_sync_enabled": doc.get("auto_sync_enabled", False),
         "sync_interval_minutes": doc.get("sync_interval_minutes", 15),
         "last_sync": doc.get("last_sync"),
@@ -4657,6 +4659,7 @@ def _sheet_fields(p: CampaignSheetIn) -> dict:
         "branch_col": p.branch_col,
         "online_branch_col": p.online_branch_col,
         "online_branch_column": p.online_branch_column.strip(),
+        "online_branch_fixed": p.online_branch_fixed.strip().lower() if p.online_branch_fixed.strip().lower() in ONLINE_BRANCH_KEYS else "",
         "auto_sync_enabled": p.auto_sync_enabled,
         "sync_interval_minutes": max(5, p.sync_interval_minutes),
     }
@@ -4860,6 +4863,8 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
         online_branch = values[ob_col] if 0 <= ob_col < len(values) else ""
         if online_header:
             online_branch = str(row.get(online_header) or "").strip()
+        if not online_branch and sheet.get("online_branch_fixed"):
+            online_branch = sheet["online_branch_fixed"]
         route_key = "berlin" if account == "berlin" else _branch_route_key(branch, online_branch)
         doc_id = str(uuid.uuid4())
         await db.campaign_leads.insert_one({

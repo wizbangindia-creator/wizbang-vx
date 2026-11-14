@@ -1,0 +1,36 @@
+{
+  "summary": "Tested India Online-branch routing. No real WhatsApp was sent. Backend: new file test_iter18_online_branch.py has 16 tests and all pass. (1) Preview of the Centralized tab returns columns_with_online = [how_would_you_prefer_to_attend_a_counselling_session?]. (2) _branch_route_key maps online + ludhiana/amritsar/jammu/pathankot_branch_ to online_<branch>, online with no branch to 'online', and offline rows to the branch. (3) A live first import of Centralized as the India admin (send_to_existing False, auto-sync off) imported 427 rows, all with whatsapp=skipped and queued 0. route_key counts: online_ludhiana 115, online_amritsar 32, online_jammu 20, online_pathankot 9, ludhiana 118, amritsar 70, jammu 50, pathankot 13. Every row matched _branch_route_key. The connection was deleted (427 leads deleted), so India now has 0 sheets and 0 campaign_leads. (4) A unit test of a second sync with new rows, using a temp DB and a monkeypatched send_routed_whatsapp, gave online_ludhiana, online_pathankot, amritsar and online (no online branch). (5) Legacy check: with no online_branch_column, online rows go to 'online'. Frontend: Centralized auto-maps Preferred Branch and shows online-branch-section, auto-filled with which_branch_would_you_prefer_for_your_online_counselling_session?. There are 3 role selects and role-online_branch_col is gone. Clearing the Online column and saving shows the toast 'Choose which column has the Online branch' and sends no POST. The intercepted payload has online_branch_column set, online_branch_col -1 and auto off. Remapping Preferred Branch to a column with no online values hides the section. Berlin modal: only berlin-name-column and berlin-phone-column, and no online section. FAILED: the Pathankot tabs DO contain the value 'online', so the section is shown, not hidden as the spec says. Save is then blocked.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "_do_campaign_sheet_sync", "issue": "If online_branch_column is saved but the tab does not have that column (a stale value sent from the UI for a Pathankot tab, see below), the code silently falls back to the generic 'online' route. It may be better business logic to route online rows of a single-branch tab (Pathankot form) to online_pathankot. Needs a product decision."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CampaignSheetModal online-branch-section", "issue": "The Pathankot tabs (gid 545121451: 22 of 26 rows 'online'; gid 1798667875: 39 of 52 rows 'online') have online values in where_would_you_prefer_to_attend_the_counselling_session? but no online-branch column. So needsOnline is true and the section shows with an empty select listing 22 unrelated columns. Save & import is blocked with 'Choose which column has the Online branch', so the user cannot connect a Pathankot tab without picking a meaningless column. This contradicts the spec ('Pathankot tabs => section hidden'). Fix: only show or require the section when the tab has a candidate online-branch column (headers matching /online/ and /branch|centre/), or make it optional. For tabs without one, consider routing online rows to the generic 'online' template or the tab's own branch.", "selector": "[data-testid='online-branch-section'], [data-testid='online-branch-column']", "priority": "HIGH"},
+      {"component": "CampaignSheetModal onlineCol state", "issue": "onlineCol is never reset when the picked tabs change. Steps: pick Centralized (auto-filled), then deselect it and pick Pathankot. The select shows the placeholder because the old value is not in onlineChoices, but validation passes and the POST payload has online_branch_column='which_branch_would_you_prefer_for_your_online_counselling_session?', a column that does not exist in that tab. What the select shows does not match what is saved. Fix: reset onlineCol when it is not in onlineChoices (add an effect on headerKey).", "selector": "[data-testid='online-branch-column']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Connect sheet modal - Amritsar tab (gid 1938838045)", "issues": ["Preferred Branch is not auto-mapped (campaign-mapping-5 is empty). The header 'where_you_want_to_attend_the_counselling_?__' is not in the preferredbranch aliases, so this tab (5 'online' rows) gets no branch routing unless the user maps it by hand."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iter18_online_branch.py", "/app/test_reports/pytest/iter18.xml"],
+  "action_items": [
+    "Pathankot tabs: do not block Save when the tab has no online-branch column. Hide the section or make it optional when there are no candidate columns (and decide whether online rows there go to 'online' or online_pathankot).",
+    "Reset onlineCol when the picked tabs or headers change and the value is not in onlineChoices, so a stale online_branch_column is not saved.",
+    "Add 'whereyouwanttoattendthecounselling' to the preferredbranch aliases in guessColumn, for the Amritsar form."
+  ],
+  "critical_code_review_comments": [
+    "needsOnline checks only whether the branch column has 'online' values. It should also check that an online-branch column exists in the picked tab(s).",
+    "When several tabs are picked, one onlineCol is used for all of them. Tabs without that column fall back to the backend heuristic or 'online' with no warning.",
+    "server.py is over 5200 lines and should be split into modules (campaign sheets, WA routing)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter18_online_branch.py"],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "80% (Centralized flow, validation, hide-on-remap and Berlin regression pass; Pathankot hidden-section expectation fails)"},
+  "seed_data_creation": "A temporary India connection TEST_iter18_online (Centralized gid 99742259) was created, synced as a first import only (0 WhatsApp), then deleted along with its 427 leads. Temp DBs iter18_unit_tmp* were dropped. Berlin: 185 leads before and after, EU and NON-EU untouched.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "India admin has 0 campaign sheets. Centralized online rows use ON_COL which_branch_would_you_prefer_for_your_online_counselling_session? (values ludhiana_branch/amritsar_branch/jammu_branch/pathankot_branch_). The Pathankot tabs' branch column has the values 'online' and 'pathankot_branch'. Amritsar_Form uses 'where_you_want_to_attend_the_counselling_?__' with the values amritsar_branch and online. In Playwright, intercept POST /api/dashboard/campaign-sheets and block /sync. Run pytest with -n 0. The backend .env values are quoted, so strip the quotes. The sidebar nav testid is nav-campaign-leads. Never touch navya's EU/NON-EU sheets."
+}
