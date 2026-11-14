@@ -1705,10 +1705,13 @@ async def preview_google_sheets(
         r = list(r) + [""] * (len(headers) - len(r))
         samples.append({headers[i]: (r[i] or "").strip() for i in range(len(headers)) if headers[i]})
 
+    has_online = {h: any("online" in ((r[i] if i < len(r) else "") or "").lower() for r in rows[1:])
+                  for i, h in enumerate(headers) if h}
     return {
         "headers": [h for h in headers if h],
         "samples": samples,
         "total_rows": max(0, len(rows) - 1),
+        "columns_with_online": [h for h, v in has_online.items() if v],
     }
 
 
@@ -4567,6 +4570,7 @@ class CampaignSheetIn(BaseModel):
     name_col: int = 1
     branch_col: int = 5
     online_branch_col: int = -1
+    online_branch_column: str = ""
     auto_sync_enabled: bool = False
     sync_interval_minutes: int = 15
 
@@ -4621,6 +4625,7 @@ def _campaign_sheet_out(doc: dict) -> dict:
         "name_col": doc.get("name_col", 1),
         "branch_col": doc.get("branch_col", 5),
         "online_branch_col": doc.get("online_branch_col", -1),
+        "online_branch_column": doc.get("online_branch_column", ""),
         "auto_sync_enabled": doc.get("auto_sync_enabled", False),
         "sync_interval_minutes": doc.get("sync_interval_minutes", 15),
         "last_sync": doc.get("last_sync"),
@@ -4651,6 +4656,7 @@ def _sheet_fields(p: CampaignSheetIn) -> dict:
         "name_col": p.name_col,
         "branch_col": p.branch_col,
         "online_branch_col": p.online_branch_col,
+        "online_branch_column": p.online_branch_column.strip(),
         "auto_sync_enabled": p.auto_sync_enabled,
         "sync_interval_minutes": max(5, p.sync_interval_minutes),
     }
@@ -4813,6 +4819,10 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
     lookup = {(h or "").strip().lower(): h for h in (reader.fieldnames or []) if h}
     columns = [{**c, "sheet_column": c.get("sheet_column") if (not c.get("sheet_column") or c["sheet_column"].strip().lower() in lookup)
                 else _guess_sheet_column(c.get("heading", ""), reader.fieldnames or [])} for c in sheet["columns"]]
+    wanted = (sheet.get("online_branch_column") or "").strip()
+    online_header = lookup.get(wanted.lower()) or (
+        next((h for h in (reader.fieldnames or []) if h and "online" in h.lower() and "branch" in h.lower()), "")
+        if wanted else "")
     if account == "berlin":
         columns = [{**c, "sheet_column": _guess_sheet_column(c.get("heading", ""), reader.fieldnames or [], exact=True)}
                    if not c.get("sheet_column") and i not in (sheet.get("name_col", 1), sheet.get("phone_col", 2)) else c
@@ -4848,6 +4858,8 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
         branch = "" if account == "berlin" else values[sheet.get("branch_col", 5)]
         ob_col = sheet.get("online_branch_col", -1)
         online_branch = values[ob_col] if 0 <= ob_col < len(values) else ""
+        if online_header:
+            online_branch = str(row.get(online_header) or "").strip()
         route_key = "berlin" if account == "berlin" else _branch_route_key(branch, online_branch)
         doc_id = str(uuid.uuid4())
         await db.campaign_leads.insert_one({

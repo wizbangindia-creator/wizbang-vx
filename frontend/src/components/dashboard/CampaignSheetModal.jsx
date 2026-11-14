@@ -16,6 +16,7 @@ const SYNONYMS = {
   email: ["email", "emailaddress"],
   campaign: ["campaignname", "campaign"],
   form: ["formname", "form"],
+  preferredbranch: ["preferredbranch", "branch", "howwouldyouprefertoattendacounsellingsession", "wherewouldyouprefertoattendthecounsellingsession"],
 };
 const guessColumn = (heading, headers, exactOnly = false) => {
   const key = norm(heading);
@@ -104,6 +105,8 @@ export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClos
   const [auto, setAuto] = useState(sheet?.auto_sync_enabled ?? false);
   const [interval, setIntervalMin] = useState(sheet?.sync_interval_minutes ?? 15);
   const [headersByGid, setHeadersByGid] = useState({});
+  const [onlineByGid, setOnlineByGid] = useState({});
+  const [onlineCol, setOnlineCol] = useState(sheet?.online_branch_column || "");
   const [sendExisting, setSendExisting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loadingTabs, setLoadingTabs] = useState(0);
@@ -132,6 +135,7 @@ export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClos
       const res = await axios.post(`${API}/dashboard/sheets/preview?${auth(credentials)}&sheet_url=${encodeURIComponent(tabUrl)}&sample_size=3`);
       const hs = res.data.headers;
       setHeadersByGid((m) => ({ ...m, [gid]: hs }));
+      setOnlineByGid((m) => ({ ...m, [gid]: res.data.columns_with_online || [] }));
       setColumns((cols) => cols.map((c) => (c.sheet_column ? c : { ...c, sheet_column: guessColumn(c.heading, hs, berlin) })));
     } catch (e) { toast.error(errMsg(e)); }
     setLoadingTabs((n) => n - 1);
@@ -148,6 +152,15 @@ export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClos
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headerKey]);
 
+  const branchHeader = columns[roles.branch_col]?.sheet_column;
+  const needsOnline = !berlin && !!branchHeader && picked.some((t) => (onlineByGid[t.gid] || []).includes(branchHeader));
+  const onlineChoices = headers.filter((h) => h !== branchHeader);
+  useEffect(() => {
+    if (needsOnline && !onlineCol) {
+      setOnlineCol(onlineChoices.find((h) => /online/i.test(h) && /branch|centre|center/i.test(h)) || "");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsOnline, headerKey]);
   const phoneCol = columns[roles.phone_col]?.sheet_column;
   const missingPhone = phoneCol ? picked.filter((t) => headersByGid[t.gid] && !headersByGid[t.gid].includes(phoneCol)) : [];
 
@@ -182,8 +195,10 @@ export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClos
     if (!picked.length) { toast.error("Choose at least one tab"); return; }
     if (!columns.some((c) => c.sheet_column)) { toast.error("Map at least one sheet column"); return; }
     if (berlin && !columns[2].sheet_column) { toast.error("Choose the phone number column"); return; }
+    if (needsOnline && !onlineCol) { toast.error("Choose which column has the Online branch"); return; }
     setBusy(true);
-    const base = { spreadsheet_url: url, spreadsheet_title: title, columns, ...roles, auto_sync_enabled: auto, sync_interval_minutes: Number(interval) || 15 };
+    const base = { spreadsheet_url: url, spreadsheet_title: title, columns, ...roles,
+      online_branch_column: needsOnline ? onlineCol : "", online_branch_col: needsOnline ? -1 : roles.online_branch_col, auto_sync_enabled: auto, sync_interval_minutes: Number(interval) || 15 };
     try {
       if (!isNew) {
         const t = picked[0];
@@ -261,8 +276,17 @@ export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClos
             {roleSelect("name_col", "Which column is the name?")}
             {roleSelect("phone_col", "Which column is the phone?")}
             {roleSelect("branch_col", "Which column is Preferred Branch?")}
-            {roleSelect("online_branch_col", "For Online rows, which column has the branch?", true)}
           </div>
+          {needsOnline && (
+            <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-3" data-testid="online-branch-section">
+              <p className="text-sm font-semibold text-blue-900 mb-1">Some students chose "Online". Which column has their Online branch?</p>
+              <p className="text-xs text-blue-800 mb-2">Online leads get the WhatsApp template of the branch picked in this column (e.g. Online · Ludhiana).</p>
+              <select value={onlineCol} onChange={(e) => setOnlineCol(e.target.value)} className="w-full min-w-0 truncate px-3 py-2 border border-blue-200 bg-white rounded-lg text-sm" data-testid="online-branch-column">
+                <option value="">— choose the Online branch column —</option>
+                {onlineChoices.map((h) => <option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+          )}
           </>)}
 
           <div className="flex flex-wrap items-center gap-4 mb-4 text-sm">
