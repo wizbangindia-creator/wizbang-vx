@@ -4408,9 +4408,14 @@ BERLIN_CAMPAIGN_HEADINGS = ["Date", "Name", "Phone", "Email", "City", "Country",
 
 def _phone_country(phone: str) -> str:
     try:
-        return geocoder.country_name_for_number(phonenumbers.parse(phone, None), "en")
+        parsed = phonenumbers.parse(phone, None)
     except phonenumbers.NumberParseException:
         return ""
+    name = geocoder.country_name_for_number(parsed, "en")
+    if not name:
+        region = phonenumbers.region_code_for_country_code(parsed.country_code)
+        name = geocoder._region_display_name(region, "en") if region and region != "ZZ" else ""
+    return name
 
 
 def _berlin_layout(items: list) -> list:
@@ -4764,20 +4769,21 @@ _HEADING_SYNONYMS = {
 }
 
 
-def _guess_sheet_column(heading: str, headers: List[str]) -> str:
+def _guess_sheet_column(heading: str, headers: List[str], exact: bool = False) -> str:
     norm = lambda v: re.sub(r"[^a-z0-9]", "", (v or "").lower())
     key = norm(heading)
     for syn in _HEADING_SYNONYMS.get(key, [key]):
         for h in headers:
             if h and norm(h) == syn:
                 return h
-    return next((h for h in headers if h and key and key in norm(h)), "")
+    return "" if exact else next((h for h in headers if h and key and key in norm(h)), "")
 
 
 def _clean_phone(raw: str, account: str = "india") -> str:
     intl = re.match(r"^\D*(\+|00)", (raw or "").strip()) is not None
     if account == "berlin":
-        if not intl and len(re.sub(r"\D", "", raw or "")) < 10:
+        bare = re.sub(r"\D", "", raw or "")
+        if not intl and not (bare.startswith(("0", "49")) or (bare.startswith("1") and len(bare) in (10, 11))):
             return ""
         digits = _format_phone(raw or "", "49")
         if intl and not _possible_number(digits):
@@ -4807,6 +4813,10 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
     lookup = {(h or "").strip().lower(): h for h in (reader.fieldnames or []) if h}
     columns = [{**c, "sheet_column": c.get("sheet_column") if (not c.get("sheet_column") or c["sheet_column"].strip().lower() in lookup)
                 else _guess_sheet_column(c.get("heading", ""), reader.fieldnames or [])} for c in sheet["columns"]]
+    if account == "berlin":
+        columns = [{**c, "sheet_column": _guess_sheet_column(c.get("heading", ""), reader.fieldnames or [], exact=True)}
+                   if not c.get("sheet_column") and i not in (sheet.get("name_col", 1), sheet.get("phone_col", 2)) else c
+                   for i, c in enumerate(columns)]
     label = sheet.get("label") or sheet.get("tab_name") or "Sheet"
 
     imported = skipped = queued = 0

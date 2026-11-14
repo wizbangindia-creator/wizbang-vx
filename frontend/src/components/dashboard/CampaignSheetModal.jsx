@@ -199,7 +199,7 @@ export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClos
           } catch (e) { toast.error(`${t.name}: ${errMsg(e)}`); }
         }
         if (saved.length) toast.success(`${saved.length} tab${saved.length === 1 ? "" : "s"} connected`);
-        onSaved(saved, true, sendExisting);
+        if (saved.length) onSaved(saved, true, sendExisting);
       }
     } catch (e) { toast.error(errMsg(e)); }
     setBusy(false);

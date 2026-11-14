@@ -1,0 +1,38 @@
+{
+  "summary": "Tested the AiSensy '+' destination fix, the Berlin layout migration, Country taken from the phone, Retry all failed / send-skipped?status=failed, and India regression. No real WhatsApp was sent: httpx and send_routed_whatsapp were monkeypatched, and in the browser send-skipped, resend and sync requests were blocked and the connect POST was intercepted. Backend: new file test_iter17_berlin_plus_dest_layout.py has 13 tests, and iter16 has 4. All 17 pass. (1) _send_via_aisensy sends destination '+4915226091787' (also from '015226091787' with the UC key), '+96894296116' and '+919876543210' with both the UC and India keys. (2) As navya, GET campaign-leads returns the headings [Date, Name, Phone, Email, City, Country, Campaign, Form] with no Preferred Branch. Both EU and NON-EU sheets have these columns. All 184 leads have 8 values and branch ''. For every lead with a phone, values[5] matches the country of the phone (+96894296116 gives Oman). values[6] is the campaign; one manually typed row has no campaign. (3) A unit sync with a temp DB, a sheet column 'which_country_are_you_planning_to_study_in?' set to Germany or Canada, and Country unmapped gave Country Oman and Malta from the phone and branch ''. (4) A live temporary Berlin connection to the Centralized tab (first import only, 0 queued, Country from phone, branch '') was deleted. EU and NON-EU and their leads were untouched, and the total did not go down. (5) A unit test of send-skipped?status=failed queued only the 2 Berlin failed leads that have a phone. It skipped the skipped lead, the lead with no phone and the India lead, and returned queued=2. Live status=foo returns 422. (6) +383 is still blocked and +968 is allowed. Frontend: as navya, the table headings are Sheet, Date, Name, Phone, Email, City, Country, Campaign, Form, WhatsApp. 'Retry all failed (159)' (retry-failed-btn) is visible and was NOT clicked. In the Berlin connect modal, Centralized shows only berlin-name-column and berlin-phone-column (auto full_name and phone_number), with no campaign-mapping or role selects. EU and NON-EU show as Connected. The captured save payload has Country sheet_column '' (exact match only), Form 'form_name' and Campaign 'campaign_name'. India admin: the 8-column mapping and all 4 role selects are shown, and Preferred Branch is in the table headings.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "_migrate_berlin_layout", "issue": "Migrated EU and NON-EU sheets get Form sheet_column ''. Both tabs have a 'form_name' column, so the Form column stays empty for all 184 leads. A new connection would guess form_name."},
+      {"endpoint": "_phone_country / sync", "issue": "When geocoder returns '' (e.g. +393289281166), the sheet's ISO code is kept ('IT'), so Country mixes full names and ISO codes. Rows with no valid phone also show 'MT', 'IN' and 'PL'. Suggest a fallback using region_code_for_number and an ISO-to-name lookup."},
+      {"endpoint": "_clean_phone/_format_phone (berlin)", "issue": "A bare 10-digit number like '7658006466' (looks Indian) gets 49 added, becomes +497658006466 and fails at AiSensy. This is a business decision, but such numbers may be better marked 'no country code'."},
+      {"endpoint": "send_routed_whatsapp", "issue": "The 159 old failures show 'WhatsApp rejected +X: the number is not on WhatsApp or is not a real number'. They actually failed because of the missing '+' bug, so the message misleads until they are retried."},
+      {"endpoint": "_guess_sheet_column (backend)", "issue": "Still falls back to substring matching when a saved sheet_column no longer exists in the CSV. It could pick 'which_country_are_you_planning_to_study_in?' for Country. Phone overwrites Country for Berlin, so the effect is small."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SheetModal (new, multi-tab)", "issue": "When every tab POST fails (e.g. 409), the error is shown as a toast, but onSaved([]) still closes the modal and the user's mapping is lost.", "selector": "[data-testid='campaign-sheet-save-btn']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter17_berlin_plus_dest_layout.py", "/app/backend/tests/test_iter16_berlin_country_codes.py", "/app/test_reports/pytest/pytest_iter17.xml"],
+  "action_items": [
+    "LOW: Map Form to 'form_name' (exact guess) for the migrated EU and NON-EU sheets.",
+    "LOW: Normalise Country to full names. Use a fallback when geocoder returns '', and convert ISO codes from the sheet.",
+    "LOW: In SheetModal, keep the modal open when no tab was saved.",
+    "INFO: 159 failed Berlin leads are waiting for 'Retry all failed'. EU and NON-EU have auto-sync every 5 min, which sends real messages (one sent during this run)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 5200+ lines; split campaign sheets/WhatsApp routing into modules.",
+    "send-skipped runs fire-and-forget asyncio tasks with no tracking. If the backend restarts mid-run, leads stay 'queued' forever.",
+    "Credentials are passed in the query string (email/password) on every call."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter17_berlin_plus_dest_layout.py"],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100%"},
+  "seed_data_creation": "Created one temporary Berlin connection (label TEST_iter17, Centralized gid 99742259) and deleted it. Unit tests used the temp DBs iter17_unit_tmp and iter17_unit_tmp_b, which were dropped. No real WhatsApp was sent by the tests.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "navya has the REAL EU (105e76c4…, gid 2139819490) and NON-EU (9b195e38…, gid 1551110032) sheets with auto-sync every 5 min. At this run there were 184 leads: 159 failed, 14 sent, 10 invalid, 1 duplicate. Never click retry-failed-btn, send-skipped-btn or resend, and never sync with send_to_existing. Use Centralized gid 99742259 for temporary connections and delete them afterwards. Intercept POST /api/dashboard/campaign-sheets in Playwright to inspect the payload without creating anything. Run pytest with -n 0 (pytest.ini adds xdist)."
+}
