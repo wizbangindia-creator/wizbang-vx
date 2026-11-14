@@ -159,11 +159,11 @@ export default function CampaignLeadsManager({ credentials }) {
     } catch (e) { toast.error(errMsg(e)); }
   };
 
-  const sendSkipped = async () => {
-    const n = data.skipped_count;
-    if (!window.confirm(`Send WhatsApp to ${n} skipped lead${n === 1 ? "" : "s"} now?`)) return;
+  const sendSkipped = async (status = "skipped") => {
+    const n = status === "failed" ? data.failed_count : data.skipped_count;
+    if (!window.confirm(`Send WhatsApp to ${n} ${status} lead${n === 1 ? "" : "s"} now?`)) return;
     try {
-      const res = await axios.post(`${API}/dashboard/campaign-leads/send-skipped?${auth(credentials)}`);
+      const res = await axios.post(`${API}/dashboard/campaign-leads/send-skipped?${auth(credentials)}&status=${status}`);
       toast.success(`Sending to ${res.data.queued} lead${res.data.queued === 1 ? "" : "s"} — statuses update in a moment`);
       load();
       setTimeout(load, Math.min(4000 + res.data.queued * 600, 30000));
@@ -196,8 +196,13 @@ export default function CampaignLeadsManager({ credentials }) {
           </div>
           <div className="flex flex-wrap gap-2">
             {data.skipped_count > 0 && (
-              <button onClick={sendSkipped} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700" data-testid="send-skipped-btn">
+              <button onClick={() => sendSkipped("skipped")} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700" data-testid="send-skipped-btn">
                 <Send size={15} /> Send all skipped ({data.skipped_count})
+              </button>
+            )}
+            {data.failed_count > 0 && (
+              <button onClick={() => sendSkipped("failed")} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700" data-testid="retry-failed-btn">
+                <RefreshCw size={15} /> Retry all failed ({data.failed_count})
               </button>
             )}
             <button onClick={() => setShowRoutes(true)} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50" data-testid="wa-routes-btn">

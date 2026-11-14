@@ -17,13 +17,13 @@ const SYNONYMS = {
   campaign: ["campaignname", "campaign"],
   form: ["formname", "form"],
 };
-const guessColumn = (heading, headers) => {
+const guessColumn = (heading, headers, exactOnly = false) => {
   const key = norm(heading);
   for (const syn of SYNONYMS[key] || [key]) {
     const hit = headers.find((h) => norm(h) === syn);
     if (hit) return hit;
   }
-  return headers.find((h) => norm(h).includes(key)) || "";
+  return exactOnly ? "" : headers.find((h) => norm(h).includes(key)) || "";
 };
 const sheetKey = (url) => (url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/) || [])[1] || "";
 
@@ -132,10 +132,10 @@ export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClos
       const res = await axios.post(`${API}/dashboard/sheets/preview?${auth(credentials)}&sheet_url=${encodeURIComponent(tabUrl)}&sample_size=3`);
       const hs = res.data.headers;
       setHeadersByGid((m) => ({ ...m, [gid]: hs }));
-      setColumns((cols) => cols.map((c) => (c.sheet_column ? c : { ...c, sheet_column: guessColumn(c.heading, hs) })));
+      setColumns((cols) => cols.map((c) => (c.sheet_column ? c : { ...c, sheet_column: guessColumn(c.heading, hs, berlin) })));
     } catch (e) { toast.error(errMsg(e)); }
     setLoadingTabs((n) => n - 1);
-  }, [credentials, url]);
+  }, [credentials, url, berlin]);
 
   const headerKey = headers.join("|");
   useEffect(() => {
@@ -143,7 +143,7 @@ export function SheetModal({ credentials, sheet, connectedSheets, berlin, onClos
     setColumns((cols) => cols.map((c, i) => {
       if (manual.has(i) && (!c.sheet_column || headers.includes(c.sheet_column))) return c;
       if (c.sheet_column && headers.includes(c.sheet_column)) return c;
-      return { ...c, sheet_column: guessColumn(c.heading, headers) };
+      return { ...c, sheet_column: guessColumn(c.heading, headers, berlin) };
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headerKey]);

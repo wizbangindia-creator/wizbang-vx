@@ -1,0 +1,39 @@
+{
+  "summary": "Tested the Berlin name/phone-only mapping and the Berlin allowed calling codes (frontend and backend). No real WhatsApp message was sent. Backend: new pytest file test_iter16_berlin_country_codes.py, 4/4 pass. (1) _berlin_phone_problem returns '' for +49, +356, +370, +371, +968, +91, +1 268, +7, +263, +880, +234, +44 and +39. It returns 'Country code +N is not in the supported country list' for +383, +970 and +299. The set has 170 codes. (2) send_routed_whatsapp('berlin', '+383…') returns ok False with that reason and does not call _send_whatsapp_api (monkeypatched). An allowed +356 number calls it once with the UC key. (3) Sync was run in-process with a fake CSV, a temporary DB and send_to_existing=True. Kosovo, Palestine and Greenland rows were imported as 'invalid' with the exact error and were never queued. Malta and Oman rows with an empty Country got 'Malta' and 'Oman'. 'Germany' given in the sheet was kept. (4) Live API: a Berlin connection to the Centralized tab (first import only) gave 427 leads, all with +intl phones and whatsapp_queued 0. It was deleted afterwards. A dry run of the real EU and NON-EU tabs in a temporary DB found no unlisted codes. 5 NON-EU rows are invalid with 'no country code', as before. The EU tab has no country column, and its Country was filled from the phone for all 24 rows (Germany 17, India 5, Oman 1, Denmark 1). Frontend: as Berlin, after Find tabs, berlin-mapping shows exactly 2 selects. There is no campaign-mapping-*, no campaign-heading-* and no role-* select. Name and phone were auto-guessed: full_name/phone_number on Centralized, full_name/phone when editing EU. Choosing an empty phone column and clicking Save shows the toast 'Choose the phone number column' and the modal stays open. A full UI connect (send-existing OFF, auto-sync OFF) imported 427 rows as skipped; the sheet was then removed. India regression: the 8-column mapping and all 4 role selects (name_col, phone_col, branch_col, online_branch_col) are shown, with auto-guess working. Issues: (a) MEDIUM: the leads table headings in the 'All sheets' view are misaligned for a mix of old and new Berlin sheets. (b) The Berlin page still shows 'Preferred Branch' for the existing EU and NON-EU connections. (c) I did NOT delete the 2 pre-existing Berlin connections (see context).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/dashboard/campaign-leads (no sheet_id)", "issue": "Headings come from the oldest sheet only (find_one sort created_at). The existing Berlin EU and NON-EU sheets use the old 8 headings (… City, Preferred Branch, Country, Campaign). New Berlin sheets use BERLIN_HEADINGS (… City, Country, Campaign, Form). In the 'All sheets' view, new-sheet values appear under the wrong headings. This was confirmed live: 'netherlands' (Country) showed under 'Preferred Branch' and the campaign under 'Country'. With a single sheet selected the headings are correct."},
+      {"endpoint": "_do_campaign_sheet_sync / new Berlin sheets", "issue": "The frontend keeps the default branch_col=5 for Berlin. Index 5 is now 'Country', so lead.branch stores the country value. It does no harm because route_key is forced to 'berlin', but it is unclean. Send branch_col/online_branch_col as -1 for Berlin, or ignore them."},
+      {"endpoint": "Berlin Country auto-guess", "issue": "The frontend guessColumn('Country') falls back to a substring match. On the Centralized tab it picked 'which_country_are_you_planning_to_study_in?' (the destination country, e.g. 'netherlands' for a +91 number). Because the column is not empty, the fill-from-phone never runs. Consider exact matching for Berlin Country, or always taking the country from the phone."},
+      {"endpoint": "Country values", "issue": "The NON-EU sheet's own 'country' column holds ISO codes (DE, HU, MT…), while countries filled from the phone are full names (Germany, Malta). The Country column mixes both formats."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CampaignLeads table (Berlin, All sheets)", "issue": "Column headings are misaligned when old-layout and new-layout Berlin sheets are both connected (see backend minor #1). Existing Berlin connections also still show a 'Preferred Branch' column, which goes against 'no preferred branch concept for Berlin'.", "selector": "[data-testid=campaign-leads-table] thead th", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter16_berlin_country_codes.py", "/app/backend/tests/iter16_real_tabs_dryrun.py", "/app/test_reports/pytest/pytest_iter16.xml"],
+  "action_items": [
+    "MEDIUM: Migrate the existing Berlin campaign_sheets (and their leads' values arrays) to BERLIN_HEADINGS, or build headings per sheet. At minimum, when a Berlin account has sheets with different heading layouts, align values by heading name in the 'All sheets' view.",
+    "LOW: For Berlin, do not set branch_col to 5 (Country). Send -1 or ignore it.",
+    "LOW: Berlin Country guess: avoid the substring match that picks 'which_country_are_you_planning_to_study_in?'. Normalise the ISO-code countries from the sheet to full names, or the reverse.",
+    "DATA: Two pre-existing Berlin connections (EU 105e76c4…, NON-EU 9b195e38…) with 178 leads (12 sent, 160 failed) and auto_sync_enabled=true every 5 min are still in the DB. I did not create them, so I did not delete them. Remove them yourself if they are test data. While auto-sync is on, new rows in these tabs will send real WhatsApp messages."
+  ],
+  "critical_code_review_comments": [
+    "send_routed_whatsapp calls _berlin_phone_problem twice (in the condition and again for the error). This is harmless but redundant.",
+    "In the sync, an intl Berlin number with the wrong length is cleaned to '' and reported as 'Phone number has no country code'. The error message is misleading (e.g. 'p:+1915511001461').",
+    "The frontend SYNONYMS has 'form' but the backend _HEADING_SYNONYMS does not. If the sync fallback re-guesses 'Form', it picks 'form_id' instead of 'form_name'.",
+    "The +1 and +7 codes allow every NANP and +7 country (e.g. +1 for any Caribbean or US number, +7 for Kazakhstan). This is expected given the list, just noted.",
+    "server.py is more than 5170 lines. Credentials are still passed in query strings."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter16_berlin_country_codes.py", "/app/backend/tests/iter16_real_tabs_dryrun.py"],
+  "success_rate": {"backend": "100% (4/4 pytest + dry-run)", "frontend": "90% (all requested flows pass; heading misalignment in mixed-layout All-sheets view)"},
+  "seed_data_creation": "None left. A TEST_iter16 Berlin connection (API) and a TEST_iter16_ui connection (UI) were created on the Centralized tab, imported as first imports (queued 0), and deleted by id. The DB is back to its starting state: campaign_sheets=2 and campaign_leads=178, all pre-existing Berlin EU and NON-EU data. India has 0 sheets.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Gids: Centralized 99742259 (full_name, phone_number), EU 2139819490 (phone, no country column), NON-EU 1551110032 (phone, country with ISO codes). Before my run the Berlin account already had EU and NON-EU connected with the old 8 headings and auto-sync every 5 min, so those tabs show as 'Connected' in the picker. I used Centralized for live tests. Never click 'Send all skipped' (it appears whenever skipped leads exist) or resend."
+}

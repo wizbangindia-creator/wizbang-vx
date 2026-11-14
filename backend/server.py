@@ -3134,7 +3134,7 @@ async def _send_via_aisensy(to_phone: str, template_name: str, language_code: st
     payload = {
         "apiKey": effective_key,
         "campaignName": template_name,
-        "destination": formatted_phone,
+        "destination": f"+{formatted_phone}",
         "userName": recipient_name or "Lead",
         "templateParams": [str(p) for p in (body_params or [])],
         "source": "visaxpert-website",
@@ -4403,6 +4403,19 @@ WEBSITE_WA_EXCLUDED_SOURCES = {
 }
 CAMPAIGN_COLUMN_COUNT = 8
 DEFAULT_CAMPAIGN_HEADINGS = ["Date", "Name", "Phone", "Email", "City", "Preferred Branch", "Country", "Campaign"]
+BERLIN_CAMPAIGN_HEADINGS = ["Date", "Name", "Phone", "Email", "City", "Country", "Campaign", "Form"]
+
+
+def _phone_country(phone: str) -> str:
+    try:
+        return geocoder.country_name_for_number(phonenumbers.parse(phone, None), "en")
+    except phonenumbers.NumberParseException:
+        return ""
+
+
+def _berlin_layout(items: list) -> list:
+    """Old 8-column layout (with Preferred Branch) -> Berlin layout (no branch, adds Form)."""
+    return items[:5] + [items[6], items[7], ""]
 
 
 async def _get_wa_routes() -> dict:
@@ -4638,6 +4651,24 @@ def _sheet_fields(p: CampaignSheetIn) -> dict:
     }
 
 
+async def _migrate_berlin_layout():
+    async for sh in db.campaign_sheets.find({"account": "berlin"}, {"_id": 0}):
+        cols = sh.get("columns") or []
+        if [c.get("heading") for c in cols] != DEFAULT_CAMPAIGN_HEADINGS:
+            continue
+        new_cols = _berlin_layout(cols)
+        new_cols[7] = {"heading": "Form", "sheet_column": ""}
+        await db.campaign_sheets.update_one({"campaign_sheet_id": sh["campaign_sheet_id"]},
+                                            {"$set": {"columns": new_cols, "branch_col": 5, "online_branch_col": -1}})
+        async for ld in db.campaign_leads.find({"campaign_sheet_id": sh["campaign_sheet_id"]}, {"_id": 0}):
+            vals = list(ld.get("values") or []) + [""] * 8
+            vals = _berlin_layout(vals[:8])
+            vals[5] = _phone_country(ld.get("phone") or "") or vals[5]
+            await db.campaign_leads.update_one({"campaign_lead_id": ld["campaign_lead_id"]},
+                                               {"$set": {"values": vals, "branch": ""}})
+        logger.info(f"Berlin sheet '{sh.get('label')}' moved to the Berlin column layout")
+
+
 async def _migrate_legacy_campaign_sheets():
     for account in ("india", "berlin"):
         old = await db.settings.find_one({"type": _sheet_type(account)})
@@ -4801,13 +4832,10 @@ async def _do_campaign_sheet_sync(sheet: dict, send_to_existing: bool = False) -
             {"dedupe_key": dedupe_key, **_account_query(account)}) is not None
         if account == "berlin" and phone:
             for i, col in enumerate(columns):
-                if (col.get("heading") or "").strip().lower() == "country" and not values[i]:
-                    try:
-                        values[i] = geocoder.country_name_for_number(phonenumbers.parse(phone, None), "en")
-                    except phonenumbers.NumberParseException:
-                        pass
+                if (col.get("heading") or "").strip().lower() == "country":
+                    values[i] = _phone_country(phone) or values[i]
         name = values[sheet.get("name_col", 1)]
-        branch = values[sheet.get("branch_col", 5)]
+        branch = "" if account == "berlin" else values[sheet.get("branch_col", 5)]
         ob_col = sheet.get("online_branch_col", -1)
         online_branch = values[ob_col] if 0 <= ob_col < len(values) else ""
         route_key = "berlin" if account == "berlin" else _branch_route_key(branch, online_branch)
@@ -4916,12 +4944,16 @@ async def list_campaign_leads(
         items.append(d)
     sheet = await db.campaign_sheets.find_one(
         {"account": account, **({"campaign_sheet_id": sheet_id} if sheet_id else {})}, {"_id": 0}, sort=[("created_at", 1)])
-    settings = _campaign_sheet_out(sheet) if sheet else {"columns": [{"heading": h} for h in DEFAULT_CAMPAIGN_HEADINGS]}
+    settings = _campaign_sheet_out(sheet) if sheet else {"columns": [{"heading": h} for h in (
+        BERLIN_CAMPAIGN_HEADINGS if account == "berlin" else DEFAULT_CAMPAIGN_HEADINGS)]}
     skipped_count = await db.campaign_leads.count_documents(
         {"whatsapp.status": "skipped", "phone": {"$nin": ["", None]}, **_account_query(account)})
+    failed_count = await db.campaign_leads.count_documents(
+        {"whatsapp.status": "failed", "phone": {"$nin": ["", None]}, **_account_query(account)})
     return {
         "account": account,
         "skipped_count": skipped_count,
+        "failed_count": failed_count,
         "headings": [c.get("heading") or f"Column {i + 1}" for i, c in enumerate(settings["columns"])],
         "phone_col": settings.get("phone_col", 2),
         "items": items,
@@ -4932,11 +4964,12 @@ async def list_campaign_leads(
 
 
 @api_router.post("/dashboard/campaign-leads/send-skipped")
-async def send_skipped_campaign_leads(email: str = Query(...), password: str = Query(...)):
+async def send_skipped_campaign_leads(email: str = Query(...), password: str = Query(...),
+                                      status: str = Query("skipped", pattern="^(skipped|failed)$")):
     user = _require_india_access(email, password)
     account = _account_of(user)
     docs = await db.campaign_leads.find(
-        {"whatsapp.status": "skipped", "phone": {"$nin": ["", None]}, **_account_query(account)},
+        {"whatsapp.status": status, "phone": {"$nin": ["", None]}, **_account_query(account)},
         {"_id": 0, "campaign_lead_id": 1, "phone": 1, "name": 1, "branch": 1, "online_branch": 1},
     ).to_list(5000)
     ids = [d["campaign_lead_id"] for d in docs]
@@ -5160,6 +5193,7 @@ async def startup_event():
         logger.warning(f"Legacy upload migration skipped: {e}")
     try:
         await _migrate_legacy_campaign_sheets()
+        await _migrate_berlin_layout()
     except Exception as e:
         logger.warning(f"Campaign sheet migration skipped: {e}")
     # Launch background scheduler loop
